@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ticket System | Авторизация</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="background auth-background">
+    <main class="login-card">
+      <div class="logo">ദ്ദി（• ˕ •マ.ᐟ</div>
+      <p class="subtitle">Авторизация</p>
+      <p class="auth-note">QMIK 2.0</p>
+
+      <% if (error) { %>
+        <div class="alert error"><%= error %></div>
+      <% } %>
+
+      <form method="post" action="/login" class="form auth-form">
+        <div class="input-group">
+          <label for="username">Логин</label>
+          <input id="username" type="text" name="username" required autocomplete="username" placeholder="Введите логин">
+        </div>
+
+        <div class="input-group">
+          <label for="password">Пароль</label>
+          <input id="password" type="password" name="password" required autocomplete="current-password" placeholder="Введите пароль">
+        </div>
+
+        <button class="primary-button full-button" type="submit">Войти</button>
+      </form>
+    </main>
+  </div>
+</body>
+</html>

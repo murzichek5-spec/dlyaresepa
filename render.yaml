@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: office-ticket-app
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: HELPER_LOGIN
+        value: helper
+      - key: HELPER_PASSWORD
+        sync: false
+      - key: STAFF_LOGIN
+        value: staff
+      - key: STAFF_PASSWORD
+        sync: false
+      - key: TZ
+        value: Europe/Moscow

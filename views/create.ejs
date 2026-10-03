@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ticket System | Создать талон</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="background app-background">
+    <header class="topbar-shell">
+      <div class="topbar">
+        <a class="brand" href="/">
+          <span class="brand-logo">ദ്ദി（• ˕ •マ.ᐟ</span>
+          <span class="brand-name">Ticket System</span>
+        </a>
+
+        <nav class="nav-links">
+          <a class="nav-link active" href="/create">Создать талон</a>
+          <a class="nav-link" href="/tickets">Талоны</a>
+          <form method="post" action="/logout">
+            <button class="nav-link logout-button" type="submit">Выйти</button>
+          </form>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page page-narrow">
+      <section class="page-heading">
+        <div>
+          <span class="eyebrow">Новый посетитель</span>
+          <h1>Создать талон</h1>
+          <p>Заполни данные человека и отметь доступные сервисы.</p>
+        </div>
+        <div class="user-chip"><span class="status-dot"></span><%= user.username %></div>
+      </section>
+
+      <% if (error) { %><div class="alert error"><%= error %></div><% } %>
+      <% if (success) { %><div class="alert success"><%= success %></div><% } %>
+
+      <form method="post" action="/create" class="content-card ticket-form">
+        <div class="form-section">
+          <div class="input-group">
+            <label for="full_name">ФИО</label>
+            <input id="full_name" type="text" name="full_name" required maxlength="150" placeholder="Иванов Иван Иванович">
+          </div>
+
+          <div class="input-group">
+            <label for="phone">Номер телефона</label>
+            <input id="phone" type="text" name="phone" required maxlength="30" placeholder="+7 999 123-45-67">
+          </div>
+        </div>
+
+        <div class="services-block">
+          <div class="section-title">Что есть у человека</div>
+          <div class="service-grid">
+            <label class="service-option">
+              <input type="checkbox" name="has_telegram">
+              <span class="custom-check"></span>
+              <span>Telegram</span>
+            </label>
+            <label class="service-option">
+              <input type="checkbox" name="has_my_tax">
+              <span class="custom-check"></span>
+              <span>Мой налог</span>
+            </label>
+            <label class="service-option">
+              <input type="checkbox" name="has_yandex_pro">
+              <span class="custom-check"></span>
+              <span>Яндекс Про</span>
+            </label>
+          </div>
+        </div>
+
+        <button class="primary-button create-button" type="submit">Создать талон</button>
+      </form>
+    </main>
+  </div>
+</body>
+</html>

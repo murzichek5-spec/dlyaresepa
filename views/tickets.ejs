@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ticket System | Талоны</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="background app-background">
+    <header class="topbar-shell">
+      <div class="topbar">
+        <a class="brand" href="/">
+          <span class="brand-logo">ദ്ദി（• ˕ •マ.ᐟ</span>
+          <span class="brand-name">Ticket System</span>
+        </a>
+
+        <nav class="nav-links">
+          <% if (user.role === 'helper' || user.role === 'admin') { %>
+            <a class="nav-link" href="/create">Создать талон</a>
+          <% } %>
+          <a class="nav-link active" href="/tickets">Талоны</a>
+          <form method="post" action="/logout">
+            <button class="nav-link logout-button" type="submit">Выйти</button>
+          </form>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page">
+      <section class="page-heading">
+        <div>
+          <span class="eyebrow">Общий список</span>
+          <h1>Талоны</h1>
+          <p>Поиск, фильтры и текущий статус каждого посетителя.</p>
+        </div>
+        <div class="user-chip"><span class="status-dot"></span><%= user.username %></div>
+      </section>
+
+      <% if (error) { %>
+        <div class="alert error"><%= error %></div>
+      <% } %>
+
+      <form method="get" action="/tickets" class="content-card filters">
+        <div class="filter-field search-field">
+          <label for="search">Поиск</label>
+          <input id="search" type="text" name="search" value="<%= search %>" placeholder="ФИО, телефон или №">
+        </div>
+
+        <div class="filter-field">
+          <label for="status">Статус</label>
+          <select id="status" name="status">
+            <option value="all" <%= status === 'all' ? 'selected' : '' %>>Все</option>
+            <option value="waiting" <%= status === 'waiting' ? 'selected' : '' %>>Ожидает</option>
+            <option value="active" <%= status === 'active' ? 'selected' : '' %>>Переведен на актив</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label for="date">Дата</label>
+          <select id="date" name="date">
+            <option value="today" <%= date === 'today' ? 'selected' : '' %>>Сегодня</option>
+            <option value="7days" <%= date === '7days' ? 'selected' : '' %>>7 дней</option>
+            <option value="all" <%= date === 'all' ? 'selected' : '' %>>Все время</option>
+          </select>
+        </div>
+
+        <button class="primary-button filter-button" type="submit">Применить</button>
+      </form>
+
+      <section class="content-card table-card">
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>№</th>
+                <th>ФИО</th>
+                <th>Телефон</th>
+                <th class="center-cell">TG</th>
+                <th class="center-cell">Нал</th>
+                <th class="center-cell">ЯП</th>
+                <th>Статус</th>
+                <% if (user.role === 'staff' || user.role === 'admin') { %><th>Действие</th><% } %>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!tickets.length) { %>
+                <tr><td colspan="<%= (user.role === 'staff' || user.role === 'admin') ? 8 : 7 %>" class="empty">Талонов пока нет</td></tr>
+              <% } %>
+
+              <% tickets.forEach(ticket => { %>
+                <tr>
+                  <td class="ticket-number"><%= ticket.queue_number || '—' %></td>
+                  <td class="name-cell"><%= ticket.full_name %></td>
+                  <td><%= ticket.phone %></td>
+                  <td class="center-cell"><span class="feature-mark <%= ticket.has_telegram ? 'yes' : 'no' %>"><%= ticket.has_telegram ? '✓' : '—' %></span></td>
+                  <td class="center-cell"><span class="feature-mark <%= ticket.has_my_tax ? 'yes' : 'no' %>"><%= ticket.has_my_tax ? '✓' : '—' %></span></td>
+                  <td class="center-cell"><span class="feature-mark <%= ticket.has_yandex_pro ? 'yes' : 'no' %>"><%= ticket.has_yandex_pro ? '✓' : '—' %></span></td>
+                  <td>
+                    <% if (ticket.status === 'active') { %>
+                      <span class="badge active-badge"><span class="badge-dot"></span>Переведен на актив</span>
+                    <% } else { %>
+                      <span class="badge waiting-badge"><span class="badge-dot"></span>Ожидает</span>
+                    <% } %>
+                  </td>
+
+                  <% if (user.role === 'staff' || user.role === 'admin') { %>
+                    <td>
+                      <% if (ticket.status === 'waiting') { %>
+                        <form method="post" action="/tickets/<%= ticket.id %>/activate" class="activate-form">
+                          <input type="number" name="queue_number" min="1" placeholder="№" required>
+                          <button class="small-button" type="submit">На актив</button>
+                        </form>
+                      <% } else { %>
+                        <span class="done-mark">Готово</span>
+                      <% } %>
+                    </td>
+                  <% } %>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
