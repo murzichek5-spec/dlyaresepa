@@ -19,18 +19,31 @@ db.pragma('foreign_keys = ON');
 const schema = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
 db.exec(schema);
 
-// Удаляем все талоны. Пользователи и их логины остаются в базе.
+// Все открытые SSE-подключения. Через них отправляем изменения на страницы без перезагрузки.
+const liveClients = new Set();
+
+function broadcast(type, payload = {}) {
+  const message = `data: ${JSON.stringify({ type, ...payload })}\n\n`;
+
+  for (const client of liveClients) {
+    try {
+      client.write(message);
+    } catch (_) {
+      liveClients.delete(client);
+    }
+  }
+}
+
+// Удаляем только талоны. Пользователи и логины остаются.
 function clearAllTickets() {
   const result = db.prepare('DELETE FROM tickets').run();
-
-  // Сбрасываем внутренний AUTOINCREMENT id талонов, чтобы новый день начинался с чистой таблицы.
   db.prepare("DELETE FROM sqlite_sequence WHERE name = 'tickets'").run();
 
   console.log(`[cleanup] Удалено талонов: ${result.changes}`);
+  broadcast('tickets-cleared');
 }
 
-// Если сервер был выключен ровно в 00:00, при следующем запуске
-// удаляем талоны, оставшиеся от предыдущих дней.
+// Если сервер не работал ровно в 00:00, старые талоны удалятся при следующем запуске.
 function clearTicketsFromPreviousDays() {
   const result = db.prepare(`
     DELETE FROM tickets
@@ -42,15 +55,12 @@ function clearTicketsFromPreviousDays() {
   }
 }
 
-// Планируем очистку на ближайшие 00:00 по локальному времени сервера.
-// После выполнения снова считаем следующую полночь — это корректнее, чем setInterval(24h).
 function scheduleMidnightCleanup() {
   const now = new Date();
   const nextMidnight = new Date(now);
   nextMidnight.setHours(24, 0, 0, 0);
 
   const delay = nextMidnight.getTime() - now.getTime();
-
   console.log(`[cleanup] Следующая очистка талонов: ${nextMidnight.toLocaleString()}`);
 
   setTimeout(() => {
@@ -83,6 +93,7 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
 app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'change-this-secret',
@@ -151,35 +162,113 @@ app.post('/logout', requireAuth, (req, res) => {
   req.session.destroy(() => res.redirect('/login'));
 });
 
-app.get('/create', requireRole('helper', 'admin'), (req, res) => {
-  res.render('create', { error: null, success: null });
+// Одно SSE-подключение держится открытым и получает события об изменениях талонов.
+app.get('/events', requireAuth, (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive'
+  });
+  res.flushHeaders();
+  res.write('retry: 3000\n\n');
+
+  liveClients.add(res);
+
+  const keepAlive = setInterval(() => {
+    res.write(': keep-alive\n\n');
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    liveClients.delete(res);
+  });
 });
 
+app.get('/create', requireRole('helper', 'admin'), (req, res) => {
+  const helperTickets = db.prepare(`
+    SELECT *
+    FROM tickets
+    WHERE created_by = ?
+      AND date(created_at, 'localtime') = date('now', 'localtime')
+    ORDER BY id DESC
+  `).all(req.session.user.id);
+
+  res.render('create', {
+    error: null,
+    success: req.query.created ? 'Талон создан. Теперь можно отметить сервисы ниже.' : null,
+    helperTickets
+  });
+});
+
+// При создании сохраняются только ФИО и телефон.
 app.post('/create', requireRole('helper', 'admin'), (req, res) => {
   const fullName = (req.body.full_name || '').trim();
   const phone = (req.body.phone || '').trim();
 
   if (fullName.length < 3 || phone.length < 5) {
+    const helperTickets = db.prepare(`
+      SELECT * FROM tickets
+      WHERE created_by = ?
+        AND date(created_at, 'localtime') = date('now', 'localtime')
+      ORDER BY id DESC
+    `).all(req.session.user.id);
+
     return res.status(400).render('create', {
       error: 'Заполни ФИО и номер телефона',
-      success: null
+      success: null,
+      helperTickets
     });
   }
 
-  db.prepare(`
-    INSERT INTO tickets (
-      full_name, phone, has_telegram, has_my_tax, has_yandex_pro, created_by
-    ) VALUES (?, ?, ?, ?, ?, ?)
-  `).run(
-    fullName,
-    phone,
-    req.body.has_telegram ? 1 : 0,
-    req.body.has_my_tax ? 1 : 0,
-    req.body.has_yandex_pro ? 1 : 0,
-    req.session.user.id
-  );
+  const result = db.prepare(`
+    INSERT INTO tickets (full_name, phone, created_by)
+    VALUES (?, ?, ?)
+  `).run(fullName, phone, req.session.user.id);
 
-  res.render('create', { error: null, success: 'Талон создан' });
+  const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(result.lastInsertRowid);
+  broadcast('ticket-created', { ticket });
+
+  // Redirect защищает от повторного создания талона при обновлении страницы.
+  res.redirect('/create?created=1');
+});
+
+// Хелпер после создания талона переключает Telegram / Мой налог / Яндекс Про.
+app.post('/tickets/:id/services', requireRole('helper', 'admin'), (req, res) => {
+  const ticketId = Number(req.params.id);
+  const field = req.body.field;
+  const value = req.body.value === true || req.body.value === 1 || req.body.value === '1';
+
+  const columns = {
+    telegram: 'has_telegram',
+    my_tax: 'has_my_tax',
+    yandex_pro: 'has_yandex_pro'
+  };
+
+  const column = columns[field];
+  if (!Number.isInteger(ticketId) || !column) {
+    return res.status(400).json({ ok: false, error: 'Некорректные данные' });
+  }
+
+  const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
+  if (!ticket) {
+    return res.status(404).json({ ok: false, error: 'Талон не найден' });
+  }
+
+  // Обычный хелпер может менять только свои талоны.
+  if (req.session.user.role === 'helper' && ticket.created_by !== req.session.user.id) {
+    return res.status(403).json({ ok: false, error: 'Нет доступа к этому талону' });
+  }
+
+  db.prepare(`
+    UPDATE tickets
+    SET ${column} = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(value ? 1 : 0, ticketId);
+
+  const updatedTicket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
+  broadcast('services-updated', { ticket: updatedTicket });
+
+  res.json({ ok: true, ticket: updatedTicket });
 });
 
 app.get('/tickets', requireAuth, (req, res) => {
@@ -244,6 +333,9 @@ app.post('/tickets/:id/activate', requireRole('staff', 'admin'), (req, res) => {
     SET queue_number = ?, status = 'active', assigned_by = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ? AND status = 'waiting'
   `).run(queueNumber, req.session.user.id, ticketId);
+
+  const updatedTicket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
+  broadcast('ticket-activated', { ticket: updatedTicket });
 
   res.redirect('/tickets');
 });

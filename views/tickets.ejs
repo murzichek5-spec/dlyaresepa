@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>QMIK | Талоны</title>
+  <title>Ticket System | Талоны</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
       <div class="topbar">
         <a class="brand" href="/">
           <span class="brand-logo">ദ്ദി（• ˕ •マ.ᐟ</span>
-          <span class="brand-name">QMIK 2.0</span>
+          <span class="brand-name">Ticket System</span>
         </a>
 
         <nav class="nav-links">
@@ -32,9 +32,12 @@
         <div>
           <span class="eyebrow">Общий список</span>
           <h1>Талоны</h1>
-          <p>Поиск, фильтры и текущий статус каждого посетителя.</p>
+          <p>Telegram, Мой налог и Яндекс Про обновляются автоматически.</p>
         </div>
-        <div class="user-chip"><span class="status-dot"></span><%= user.username %></div>
+        <div class="heading-actions">
+          <div class="live-chip"><span class="live-dot"></span>Live</div>
+          <div class="user-chip"><span class="status-dot"></span><%= user.username %></div>
+        </div>
       </section>
 
       <% if (error) { %>
@@ -89,13 +92,13 @@
               <% } %>
 
               <% tickets.forEach(ticket => { %>
-                <tr>
+                <tr data-ticket-id="<%= ticket.id %>">
                   <td class="ticket-number"><%= ticket.queue_number || '—' %></td>
                   <td class="name-cell"><%= ticket.full_name %></td>
                   <td><%= ticket.phone %></td>
-                  <td class="center-cell"><span class="feature-mark <%= ticket.has_telegram ? 'yes' : 'no' %>"><%= ticket.has_telegram ? '✓' : '—' %></span></td>
-                  <td class="center-cell"><span class="feature-mark <%= ticket.has_my_tax ? 'yes' : 'no' %>"><%= ticket.has_my_tax ? '✓' : '—' %></span></td>
-                  <td class="center-cell"><span class="feature-mark <%= ticket.has_yandex_pro ? 'yes' : 'no' %>"><%= ticket.has_yandex_pro ? '✓' : '—' %></span></td>
+                  <td class="center-cell"><span data-live-field="telegram" class="feature-mark <%= ticket.has_telegram ? 'yes' : 'no' %>"><%= ticket.has_telegram ? '✓' : '—' %></span></td>
+                  <td class="center-cell"><span data-live-field="my_tax" class="feature-mark <%= ticket.has_my_tax ? 'yes' : 'no' %>"><%= ticket.has_my_tax ? '✓' : '—' %></span></td>
+                  <td class="center-cell"><span data-live-field="yandex_pro" class="feature-mark <%= ticket.has_yandex_pro ? 'yes' : 'no' %>"><%= ticket.has_yandex_pro ? '✓' : '—' %></span></td>
                   <td>
                     <% if (ticket.status === 'active') { %>
                       <span class="badge active-badge"><span class="badge-dot"></span>Переведен на актив</span>
@@ -124,5 +127,7 @@
       </section>
     </main>
   </div>
+
+  <script src="/tickets-live.js"></script>
 </body>
 </html>
