@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   has_telegram INTEGER NOT NULL DEFAULT 0,
   has_my_tax INTEGER NOT NULL DEFAULT 0,
   has_yandex_pro INTEGER NOT NULL DEFAULT 0,
+  helper_ready INTEGER NOT NULL DEFAULT 0,
   queue_number INTEGER UNIQUE,
   status TEXT NOT NULL DEFAULT 'waiting' CHECK(status IN ('waiting', 'active')),
   created_by INTEGER NOT NULL,

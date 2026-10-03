@@ -37,21 +37,36 @@ function updateNumber(row, queueNumber) {
   }
 }
 
-function updateStatus(row, status) {
-  const select = row.querySelector('.status-select');
-  if (select) {
-    select.value = status;
-    select.classList.toggle('status-select-active', status === 'active');
-    select.classList.toggle('status-select-waiting', status !== 'active');
-  }
+function getDisplayStatus(ticket) {
+  if (ticket.status === 'active') return 'active';
+  return ticket.helper_ready ? 'ready' : 'not_ready';
+}
 
-  const badge = row.querySelector('[data-live-status]');
-  if (badge) {
-    badge.classList.toggle('active-badge', status === 'active');
-    badge.classList.toggle('waiting-badge', status !== 'active');
-    const text = badge.querySelector('[data-status-text]');
-    if (text) text.textContent = status === 'active' ? 'Переведен на актив' : 'Ожидает';
-  }
+function getStatusText(status) {
+  if (status === 'active') return 'Переведен на актив';
+  if (status === 'ready') return 'Готов';
+  return 'Не готов';
+}
+
+function statusMatchesCurrentFilter(status) {
+  const statusFilter = new URLSearchParams(window.location.search).get('status') || 'all';
+  return statusFilter === 'all' || statusFilter === status;
+}
+
+function styleStatusBadge(badge, status) {
+  if (!badge) return;
+  badge.classList.toggle('active-badge', status === 'active');
+  badge.classList.toggle('ready-badge', status === 'ready');
+  badge.classList.toggle('not-ready-badge', status === 'not_ready');
+  const text = badge.querySelector('[data-status-text]');
+  if (text) text.textContent = getStatusText(status);
+}
+
+function updateReadySelect(select, ready) {
+  if (!select) return;
+  select.value = ready ? '1' : '0';
+  select.classList.toggle('status-select-ready', Boolean(ready));
+  select.classList.toggle('status-select-not-ready', !ready);
 }
 
 // Сервисы меняются хелпером прямо в общей таблице.
@@ -82,6 +97,38 @@ document.querySelectorAll('[data-service-toggle]').forEach((checkbox) => {
       alert('Не удалось сохранить изменение');
     } finally {
       checkbox.disabled = false;
+    }
+  });
+});
+
+// Хелпер меняет Готов / Не готов без перезагрузки страницы.
+document.querySelectorAll('[data-ready-select]').forEach((select) => {
+  select.addEventListener('change', async () => {
+    const row = select.closest('[data-ticket-id]');
+    const ticketId = row?.dataset.ticketId;
+    const previousValue = select.value === '1' ? '0' : '1';
+    const ready = select.value === '1';
+
+    updateReadySelect(select, ready);
+    select.disabled = true;
+
+    try {
+      const response = await fetch(`/tickets/${ticketId}/ready`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ready })
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Не удалось сохранить статус');
+      }
+    } catch (error) {
+      select.value = previousValue;
+      updateReadySelect(select, previousValue === '1');
+      alert(error.message || 'Не удалось сохранить статус');
+    } finally {
+      select.disabled = false;
     }
   });
 });
@@ -122,16 +169,35 @@ events.onmessage = (event) => {
     return;
   }
 
+  if (data.type === 'ticket-ready-updated' && data.ticket) {
+    const row = document.querySelector(`tr[data-ticket-id="${data.ticket.id}"]`);
+    if (!row) return;
+
+    const status = getDisplayStatus(data.ticket);
+    if (!statusMatchesCurrentFilter(status)) {
+      row.remove();
+      return;
+    }
+
+    row.dataset.ticketStatus = status;
+    updateReadySelect(row.querySelector('[data-ready-select]'), Boolean(data.ticket.helper_ready));
+    styleStatusBadge(row.querySelector('[data-live-status]'), status);
+    return;
+  }
+
   if (data.type === 'ticket-status-updated' && data.ticket) {
     const row = document.querySelector(`tr[data-ticket-id="${data.ticket.id}"]`);
     if (!row) return;
 
-    const statusFilter = new URLSearchParams(window.location.search).get('status') || 'all';
-    if ((statusFilter === 'waiting' || statusFilter === 'active') && statusFilter !== data.ticket.status) {
+    const status = getDisplayStatus(data.ticket);
+    if (!statusMatchesCurrentFilter(status)) {
       row.remove();
-    } else {
-      updateStatus(row, data.ticket.status);
+      return;
     }
+
+    // Роль-зависимые элементы статуса меняются по структуре (select ↔ badge/button),
+    // поэтому для корректного интерфейса обновляем страницу только при переводе/возврате из актива.
+    window.location.reload();
     return;
   }
 

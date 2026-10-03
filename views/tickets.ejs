@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>QMIK | Талоны</title>
+  <title>Ticket System | Талоны</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
       <div class="topbar">
         <a class="brand" href="/">
           <span class="brand-logo">ദ്ദി（• ˕ •マ.ᐟ</span>
-          <span class="brand-name">QMIK 2.0</span>
+          <span class="brand-name">Ticket System</span>
         </a>
 
         <nav class="nav-links">
@@ -32,7 +32,7 @@
         <div>
           <span class="eyebrow">Общий список</span>
           <h1>Талоны</h1>
-          <p>Изменения сервисов, номера и статуса синхронизируются в реальном времени.</p>
+          <p>Готовность, сервисы, номер и перевод в актив синхронизируются в реальном времени.</p>
         </div>
         <div class="heading-actions">
           <div class="live-chip"><span class="live-dot"></span>Live</div>
@@ -53,7 +53,8 @@
           <label for="status">Статус</label>
           <select id="status" name="status">
             <option value="all" <%= status === 'all' ? 'selected' : '' %>>Все</option>
-            <option value="waiting" <%= status === 'waiting' ? 'selected' : '' %>>Ожидает</option>
+            <option value="not_ready" <%= status === 'not_ready' ? 'selected' : '' %>>Не готов</option>
+            <option value="ready" <%= status === 'ready' ? 'selected' : '' %>>Готов</option>
             <option value="active" <%= status === 'active' ? 'selected' : '' %>>Переведен на актив</option>
           </select>
         </div>
@@ -93,9 +94,11 @@
               <% tickets.forEach(ticket => { %>
                 <% const canEditServices = user.role === 'admin' || (user.role === 'helper' && ticket.created_by === user.id); %>
                 <% const canManage = user.role === 'staff' || user.role === 'admin'; %>
+                <% const canEditReady = user.role === 'helper' && ticket.created_by === user.id; %>
                 <% const canDelete = canManage || (user.role === 'helper' && ticket.created_by === user.id); %>
+                <% const displayStatus = ticket.status === 'active' ? 'active' : (ticket.helper_ready ? 'ready' : 'not_ready'); %>
 
-                <tr data-ticket-id="<%= ticket.id %>">
+                <tr data-ticket-id="<%= ticket.id %>" data-ticket-status="<%= displayStatus %>">
                   <td class="ticket-number" data-number-cell>
                     <% if (canManage) { %>
                       <form method="post" action="/tickets/<%= ticket.id %>/number" class="number-form">
@@ -130,16 +133,37 @@
                   <% }) %>
 
                   <td data-status-cell>
-                    <% if (canManage) { %>
-                      <form method="post" action="/tickets/<%= ticket.id %>/status" class="status-form">
-                        <select name="status" class="status-select <%= ticket.status === 'active' ? 'status-select-active' : 'status-select-waiting' %>" onchange="this.form.submit()">
-                          <option value="waiting" <%= ticket.status === 'waiting' ? 'selected' : '' %>>Ожидает</option>
-                          <option value="active" <%= ticket.status === 'active' ? 'selected' : '' %>>Переведен на актив</option>
+                    <% if (canEditReady) { %>
+                      <% if (ticket.status === 'active') { %>
+                        <span data-live-status class="badge active-badge">
+                          <span class="badge-dot"></span><span data-status-text>Переведен на актив</span>
+                        </span>
+                      <% } else { %>
+                        <select
+                          data-ready-select
+                          class="status-select <%= ticket.helper_ready ? 'status-select-ready' : 'status-select-not-ready' %>"
+                        >
+                          <option value="0" <%= !ticket.helper_ready ? 'selected' : '' %>>Не готов</option>
+                          <option value="1" <%= ticket.helper_ready ? 'selected' : '' %>>Готов</option>
                         </select>
-                      </form>
+                      <% } %>
+                    <% } else if (canManage) { %>
+                      <div class="staff-status-control">
+                        <span data-live-status class="badge <%= displayStatus === 'active' ? 'active-badge' : displayStatus === 'ready' ? 'ready-badge' : 'not-ready-badge' %>">
+                          <span class="badge-dot"></span>
+                          <span data-status-text><%= displayStatus === 'active' ? 'Переведен на актив' : displayStatus === 'ready' ? 'Готов' : 'Не готов' %></span>
+                        </span>
+                        <form method="post" action="/tickets/<%= ticket.id %>/status" class="status-action-form" data-status-action-form>
+                          <% if (ticket.status === 'active') { %>
+                            <button class="restore-status-button" type="submit" name="action" value="restore">Вернуть статус</button>
+                          <% } else { %>
+                            <button class="activate-status-button" type="submit" name="action" value="active">Перевести на актив</button>
+                          <% } %>
+                        </form>
+                      </div>
                     <% } else { %>
-                      <span data-live-status class="badge <%= ticket.status === 'active' ? 'active-badge' : 'waiting-badge' %>">
-                        <span class="badge-dot"></span><span data-status-text><%= ticket.status === 'active' ? 'Переведен на актив' : 'Ожидает' %></span>
+                      <span data-live-status class="badge <%= displayStatus === 'active' ? 'active-badge' : displayStatus === 'ready' ? 'ready-badge' : 'not-ready-badge' %>">
+                        <span class="badge-dot"></span><span data-status-text><%= displayStatus === 'active' ? 'Переведен на актив' : displayStatus === 'ready' ? 'Готов' : 'Не готов' %></span>
                       </span>
                     <% } %>
                   </td>

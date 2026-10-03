@@ -19,6 +19,14 @@ db.pragma('foreign_keys = ON');
 const schema = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
 db.exec(schema);
 
+// Мягкая миграция для уже существующей SQLite-базы из прошлой версии.
+// Внутреннее поле status оставляем waiting/active для совместимости,
+// а готовность хелпера храним отдельно. В интерфейсе слова «Ожидает» больше нет.
+const ticketColumns = db.prepare('PRAGMA table_info(tickets)').all().map((column) => column.name);
+if (!ticketColumns.includes('helper_ready')) {
+  db.exec('ALTER TABLE tickets ADD COLUMN helper_ready INTEGER NOT NULL DEFAULT 0');
+}
+
 // Все открытые SSE-подключения. Через них отправляем изменения без перезагрузки.
 const liveClients = new Set();
 
@@ -258,6 +266,41 @@ app.post('/tickets/:id/services', requireRole('helper', 'admin'), (req, res) => 
   res.json({ ok: true, ticket: updatedTicket });
 });
 
+// Готов / Не готов меняет только хелпер у созданного им талона.
+app.post('/tickets/:id/ready', requireRole('helper', 'admin'), (req, res) => {
+  const ticketId = Number(req.params.id);
+  const ready = req.body.ready === true || req.body.ready === 1 || req.body.ready === '1' || req.body.ready === 'ready';
+
+  if (!Number.isInteger(ticketId)) {
+    return res.status(400).json({ ok: false, error: 'Некорректный талон' });
+  }
+
+  const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
+  if (!ticket) {
+    return res.status(404).json({ ok: false, error: 'Талон не найден' });
+  }
+
+  if (req.session.user.role === 'helper' && ticket.created_by !== req.session.user.id) {
+    return res.status(403).json({ ok: false, error: 'Нет доступа к этому талону' });
+  }
+
+  // После перевода в актив итоговый статус контролирует штатный сотрудник.
+  if (ticket.status === 'active') {
+    return res.status(409).json({ ok: false, error: 'Талон уже переведен на актив' });
+  }
+
+  db.prepare(`
+    UPDATE tickets
+    SET helper_ready = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(ready ? 1 : 0, ticketId);
+
+  const updatedTicket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
+  broadcast('ticket-ready-updated', { ticket: updatedTicket });
+
+  res.json({ ok: true, ticket: updatedTicket });
+});
+
 app.get('/tickets', requireAuth, (req, res) => {
   const search = (req.query.search || '').trim();
   const status = req.query.status || 'all';
@@ -272,9 +315,12 @@ app.get('/tickets', requireAuth, (req, res) => {
     params.push(q, q, q);
   }
 
-  if (status === 'waiting' || status === 'active') {
-    where.push('t.status = ?');
-    params.push(status);
+  if (status === 'active') {
+    where.push("t.status = 'active'");
+  } else if (status === 'ready') {
+    where.push("t.status <> 'active' AND t.helper_ready = 1");
+  } else if (status === 'not_ready') {
+    where.push("t.status <> 'active' AND t.helper_ready = 0");
   }
 
   if (date === 'today') {
@@ -315,7 +361,7 @@ app.post('/tickets/:id/number', requireRole('staff', 'admin'), (req, res) => {
 
   let queueNumber = null;
   if (rawNumber === '' && ticket.status === 'active') {
-    return redirectWithError(res, 'У активного талона должен быть номер. Сначала верни статус «Ожидает».');
+    return redirectWithError(res, 'У талона в активе должен быть номер. Сначала верни его из статуса «Переведен на актив».');
   }
 
   if (rawNumber !== '') {
@@ -342,21 +388,24 @@ app.post('/tickets/:id/number', requireRole('staff', 'admin'), (req, res) => {
   res.redirect('/tickets');
 });
 
-// Статус можно менять в обе стороны. Номер при возврате в «Ожидает» не стирается.
+// Штатный сотрудник переводит талон в актив и может отменить случайное нажатие.
+// При возврате из актива снова показывается последнее состояние хелпера: Готов / Не готов.
 app.post('/tickets/:id/status', requireRole('staff', 'admin'), (req, res) => {
   const ticketId = Number(req.params.id);
-  const nextStatus = req.body.status;
+  const action = req.body.action;
 
-  if (!Number.isInteger(ticketId) || !['waiting', 'active'].includes(nextStatus)) {
-    return redirectWithError(res, 'Некорректный статус');
+  if (!Number.isInteger(ticketId) || !['active', 'restore'].includes(action)) {
+    return redirectWithError(res, 'Некорректное действие со статусом');
   }
 
   const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
   if (!ticket) return res.status(404).send('Талон не найден');
 
-  if (nextStatus === 'active' && !ticket.queue_number) {
+  if (action === 'active' && !ticket.queue_number) {
     return redirectWithError(res, 'Сначала присвой номер талона');
   }
+
+  const nextStatus = action === 'active' ? 'active' : 'waiting';
 
   db.prepare(`
     UPDATE tickets
