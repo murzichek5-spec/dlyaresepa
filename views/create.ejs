@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ticket System | Создать талон</title>
+  <title>QMIK | Создать талон</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
       <div class="topbar">
         <a class="brand" href="/">
           <span class="brand-logo">ദ്ദി（• ˕ •マ.ᐟ</span>
-          <span class="brand-name">Ticket System</span>
+          <span class="brand-name">QMIK 2.0</span>
         </a>
 
         <nav class="nav-links">
@@ -30,13 +30,18 @@
         <div>
           <span class="eyebrow">Новый посетитель</span>
           <h1>Создать талон</h1>
-          <p>На этом шаге нужны только ФИО и номер телефона.</p>
+          <p>Здесь вводятся только ФИО и номер телефона.</p>
         </div>
         <div class="user-chip"><span class="status-dot"></span><%= user.username %></div>
       </section>
 
       <% if (error) { %><div class="alert error"><%= error %></div><% } %>
-      <% if (success) { %><div class="alert success"><%= success %></div><% } %>
+      <% if (success) { %>
+        <div class="alert success alert-with-link">
+          <span><%= success %></span>
+          <a href="/tickets">Открыть список</a>
+        </div>
+      <% } %>
 
       <form method="post" action="/create" class="content-card ticket-form">
         <div class="form-section">
@@ -54,66 +59,10 @@
         <button class="primary-button create-button" type="submit">Создать талон</button>
       </form>
 
-      <section class="helper-section">
-        <div class="section-heading-row">
-          <div>
-            <span class="eyebrow">После создания</span>
-            <h2>Сервисы клиентов</h2>
-            <p>Отмечай сервисы по мере проверки. Сотрудник увидит изменения сразу.</p>
-          </div>
-          <div class="live-chip"><span class="live-dot"></span>В реальном времени</div>
-        </div>
-
-        <% if (!helperTickets.length) { %>
-          <div class="content-card helper-empty">Сегодня ты ещё не создавал талонов.</div>
-        <% } %>
-
-        <div class="helper-ticket-list">
-          <% helperTickets.forEach(ticket => { %>
-            <article class="content-card helper-ticket-card" data-ticket-id="<%= ticket.id %>">
-              <div class="helper-ticket-main">
-                <div>
-                  <div class="helper-ticket-name"><%= ticket.full_name %></div>
-                  <div class="helper-ticket-phone"><%= ticket.phone %></div>
-                </div>
-
-                <div class="helper-ticket-meta">
-                  <% if (ticket.status === 'active') { %>
-                    <span class="badge active-badge"><span class="badge-dot"></span>№ <%= ticket.queue_number %> · Переведен на актив</span>
-                  <% } else { %>
-                    <span class="badge waiting-badge"><span class="badge-dot"></span>Ожидает</span>
-                  <% } %>
-                </div>
-              </div>
-
-              <div class="helper-service-grid">
-                <label class="service-option compact-service">
-                  <input type="checkbox" data-service-toggle data-field="telegram" <%= ticket.has_telegram ? 'checked' : '' %>>
-                  <span class="custom-check"></span>
-                  <span>Telegram</span>
-                </label>
-
-                <label class="service-option compact-service">
-                  <input type="checkbox" data-service-toggle data-field="my_tax" <%= ticket.has_my_tax ? 'checked' : '' %>>
-                  <span class="custom-check"></span>
-                  <span>Мой налог</span>
-                </label>
-
-                <label class="service-option compact-service">
-                  <input type="checkbox" data-service-toggle data-field="yandex_pro" <%= ticket.has_yandex_pro ? 'checked' : '' %>>
-                  <span class="custom-check"></span>
-                  <span>Яндекс Про</span>
-                </label>
-              </div>
-
-              <div class="save-state" aria-live="polite"></div>
-            </article>
-          <% }) %>
-        </div>
-      </section>
+      <div class="create-hint">
+        Telegram, Мой налог и Яндекс Про отмечаются после создания на странице <a href="/tickets">«Талоны»</a>.
+      </div>
     </main>
   </div>
-
-  <script src="/helper.js"></script>
 </body>
 </html>

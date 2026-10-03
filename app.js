@@ -19,7 +19,7 @@ db.pragma('foreign_keys = ON');
 const schema = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
 db.exec(schema);
 
-// Все открытые SSE-подключения. Через них отправляем изменения на страницы без перезагрузки.
+// Все открытые SSE-подключения. Через них отправляем изменения без перезагрузки.
 const liveClients = new Set();
 
 function broadcast(type, payload = {}) {
@@ -125,6 +125,10 @@ function requireRole(...roles) {
   };
 }
 
+function redirectWithError(res, message) {
+  return res.redirect('/tickets?error=' + encodeURIComponent(message));
+}
+
 app.get('/health', (req, res) => {
   res.status(200).send('ok');
 });
@@ -185,18 +189,9 @@ app.get('/events', requireAuth, (req, res) => {
 });
 
 app.get('/create', requireRole('helper', 'admin'), (req, res) => {
-  const helperTickets = db.prepare(`
-    SELECT *
-    FROM tickets
-    WHERE created_by = ?
-      AND date(created_at, 'localtime') = date('now', 'localtime')
-    ORDER BY id DESC
-  `).all(req.session.user.id);
-
   res.render('create', {
     error: null,
-    success: req.query.created ? 'Талон создан. Теперь можно отметить сервисы ниже.' : null,
-    helperTickets
+    success: req.query.created ? 'Талон создан. Сервисы можно отметить на странице «Талоны».' : null
   });
 });
 
@@ -206,17 +201,9 @@ app.post('/create', requireRole('helper', 'admin'), (req, res) => {
   const phone = (req.body.phone || '').trim();
 
   if (fullName.length < 3 || phone.length < 5) {
-    const helperTickets = db.prepare(`
-      SELECT * FROM tickets
-      WHERE created_by = ?
-        AND date(created_at, 'localtime') = date('now', 'localtime')
-      ORDER BY id DESC
-    `).all(req.session.user.id);
-
     return res.status(400).render('create', {
       error: 'Заполни ФИО и номер телефона',
-      success: null,
-      helperTickets
+      success: null
     });
   }
 
@@ -232,7 +219,7 @@ app.post('/create', requireRole('helper', 'admin'), (req, res) => {
   res.redirect('/create?created=1');
 });
 
-// Хелпер после создания талона переключает Telegram / Мой налог / Яндекс Про.
+// Telegram / Мой налог / Яндекс Про хелпер меняет прямо в общем списке.
 app.post('/tickets/:id/services', requireRole('helper', 'admin'), (req, res) => {
   const ticketId = Number(req.params.id);
   const field = req.body.field;
@@ -254,7 +241,7 @@ app.post('/tickets/:id/services', requireRole('helper', 'admin'), (req, res) => 
     return res.status(404).json({ ok: false, error: 'Талон не найден' });
   }
 
-  // Обычный хелпер может менять только свои талоны.
+  // Обычный хелпер меняет сервисы только у созданных им талонов.
   if (req.session.user.role === 'helper' && ticket.created_by !== req.session.user.id) {
     return res.status(403).json({ ok: false, error: 'Нет доступа к этому талону' });
   }
@@ -306,38 +293,98 @@ app.get('/tickets', requireAuth, (req, res) => {
   `;
 
   const tickets = db.prepare(sql).all(...params);
-  res.render('tickets', { tickets, search, status, date, error: req.query.error || null });
+  res.render('tickets', {
+    tickets,
+    search,
+    status,
+    date,
+    error: req.query.error || null,
+    success: req.query.success || null
+  });
 });
 
-app.post('/tickets/:id/activate', requireRole('staff', 'admin'), (req, res) => {
+// Штатный сотрудник может присвоить, исправить или очистить номер талона.
+app.post('/tickets/:id/number', requireRole('staff', 'admin'), (req, res) => {
   const ticketId = Number(req.params.id);
-  const queueNumber = Number(req.body.queue_number);
+  const rawNumber = String(req.body.queue_number ?? '').trim();
 
-  if (!Number.isInteger(queueNumber) || queueNumber <= 0) {
-    return res.redirect('/tickets?error=' + encodeURIComponent('Введите корректный номер'));
-  }
+  if (!Number.isInteger(ticketId)) return redirectWithError(res, 'Некорректный талон');
 
   const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
   if (!ticket) return res.status(404).send('Талон не найден');
-  if (ticket.status === 'active') {
-    return res.redirect('/tickets?error=' + encodeURIComponent('Талон уже переведен на актив'));
+
+  let queueNumber = null;
+  if (rawNumber === '' && ticket.status === 'active') {
+    return redirectWithError(res, 'У активного талона должен быть номер. Сначала верни статус «Ожидает».');
   }
 
-  const duplicate = db.prepare('SELECT id FROM tickets WHERE queue_number = ?').get(queueNumber);
-  if (duplicate) {
-    return res.redirect('/tickets?error=' + encodeURIComponent('Такой номер уже используется'));
+  if (rawNumber !== '') {
+    queueNumber = Number(rawNumber);
+    if (!Number.isInteger(queueNumber) || queueNumber <= 0) {
+      return redirectWithError(res, 'Введите корректный номер талона');
+    }
+
+    const duplicate = db.prepare('SELECT id FROM tickets WHERE queue_number = ? AND id <> ?')
+      .get(queueNumber, ticketId);
+    if (duplicate) {
+      return redirectWithError(res, 'Такой номер уже используется');
+    }
   }
 
   db.prepare(`
     UPDATE tickets
-    SET queue_number = ?, status = 'active', assigned_by = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ? AND status = 'waiting'
+    SET queue_number = ?, assigned_by = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
   `).run(queueNumber, req.session.user.id, ticketId);
 
   const updatedTicket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
-  broadcast('ticket-activated', { ticket: updatedTicket });
-
+  broadcast('ticket-number-updated', { ticket: updatedTicket });
   res.redirect('/tickets');
+});
+
+// Статус можно менять в обе стороны. Номер при возврате в «Ожидает» не стирается.
+app.post('/tickets/:id/status', requireRole('staff', 'admin'), (req, res) => {
+  const ticketId = Number(req.params.id);
+  const nextStatus = req.body.status;
+
+  if (!Number.isInteger(ticketId) || !['waiting', 'active'].includes(nextStatus)) {
+    return redirectWithError(res, 'Некорректный статус');
+  }
+
+  const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
+  if (!ticket) return res.status(404).send('Талон не найден');
+
+  if (nextStatus === 'active' && !ticket.queue_number) {
+    return redirectWithError(res, 'Сначала присвой номер талона');
+  }
+
+  db.prepare(`
+    UPDATE tickets
+    SET status = ?, assigned_by = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(nextStatus, req.session.user.id, ticketId);
+
+  const updatedTicket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
+  broadcast('ticket-status-updated', { ticket: updatedTicket });
+  res.redirect('/tickets');
+});
+
+// Удалять могут обе роли. Хелпер — только созданные им талоны, staff/admin — любые.
+app.post('/tickets/:id/delete', requireRole('helper', 'staff', 'admin'), (req, res) => {
+  const ticketId = Number(req.params.id);
+  if (!Number.isInteger(ticketId)) return redirectWithError(res, 'Некорректный талон');
+
+  const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
+  if (!ticket) return res.status(404).send('Талон не найден');
+
+  if (req.session.user.role === 'helper' && ticket.created_by !== req.session.user.id) {
+    return res.status(403).send('Нет доступа к этому талону');
+  }
+
+  db.prepare('DELETE FROM tickets WHERE id = ?').run(ticketId);
+  broadcast('ticket-deleted', { ticketId });
+
+  res.redirect('/tickets?success=' + encodeURIComponent('Талон удалён'));
 });
 
 app.use((req, res) => {

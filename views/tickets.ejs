@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ticket System | Талоны</title>
+  <title>QMIK | Талоны</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
       <div class="topbar">
         <a class="brand" href="/">
           <span class="brand-logo">ദ്ദി（• ˕ •マ.ᐟ</span>
-          <span class="brand-name">Ticket System</span>
+          <span class="brand-name">QMIK 2.0</span>
         </a>
 
         <nav class="nav-links">
@@ -32,7 +32,7 @@
         <div>
           <span class="eyebrow">Общий список</span>
           <h1>Талоны</h1>
-          <p>Telegram, Мой налог и Яндекс Про обновляются автоматически.</p>
+          <p>Изменения сервисов, номера и статуса синхронизируются в реальном времени.</p>
         </div>
         <div class="heading-actions">
           <div class="live-chip"><span class="live-dot"></span>Live</div>
@@ -40,9 +40,8 @@
         </div>
       </section>
 
-      <% if (error) { %>
-        <div class="alert error"><%= error %></div>
-      <% } %>
+      <% if (error) { %><div class="alert error"><%= error %></div><% } %>
+      <% if (success) { %><div class="alert success"><%= success %></div><% } %>
 
       <form method="get" action="/tickets" class="content-card filters">
         <div class="filter-field search-field">
@@ -73,52 +72,87 @@
 
       <section class="content-card table-card">
         <div class="table-scroll">
-          <table>
+          <table class="tickets-table">
             <thead>
               <tr>
-                <th>№</th>
+                <th>№ талона</th>
                 <th>ФИО</th>
                 <th>Телефон</th>
                 <th class="center-cell">TG</th>
                 <th class="center-cell">Нал</th>
                 <th class="center-cell">ЯП</th>
                 <th>Статус</th>
-                <% if (user.role === 'staff' || user.role === 'admin') { %><th>Действие</th><% } %>
+                <th>Удалить</th>
               </tr>
             </thead>
             <tbody>
               <% if (!tickets.length) { %>
-                <tr><td colspan="<%= (user.role === 'staff' || user.role === 'admin') ? 8 : 7 %>" class="empty">Талонов пока нет</td></tr>
+                <tr><td colspan="8" class="empty">Талонов пока нет</td></tr>
               <% } %>
 
               <% tickets.forEach(ticket => { %>
+                <% const canEditServices = user.role === 'admin' || (user.role === 'helper' && ticket.created_by === user.id); %>
+                <% const canManage = user.role === 'staff' || user.role === 'admin'; %>
+                <% const canDelete = canManage || (user.role === 'helper' && ticket.created_by === user.id); %>
+
                 <tr data-ticket-id="<%= ticket.id %>">
-                  <td class="ticket-number"><%= ticket.queue_number || '—' %></td>
-                  <td class="name-cell"><%= ticket.full_name %></td>
-                  <td><%= ticket.phone %></td>
-                  <td class="center-cell"><span data-live-field="telegram" class="feature-mark <%= ticket.has_telegram ? 'yes' : 'no' %>"><%= ticket.has_telegram ? '✓' : '—' %></span></td>
-                  <td class="center-cell"><span data-live-field="my_tax" class="feature-mark <%= ticket.has_my_tax ? 'yes' : 'no' %>"><%= ticket.has_my_tax ? '✓' : '—' %></span></td>
-                  <td class="center-cell"><span data-live-field="yandex_pro" class="feature-mark <%= ticket.has_yandex_pro ? 'yes' : 'no' %>"><%= ticket.has_yandex_pro ? '✓' : '—' %></span></td>
-                  <td>
-                    <% if (ticket.status === 'active') { %>
-                      <span class="badge active-badge"><span class="badge-dot"></span>Переведен на актив</span>
+                  <td class="ticket-number" data-number-cell>
+                    <% if (canManage) { %>
+                      <form method="post" action="/tickets/<%= ticket.id %>/number" class="number-form">
+                        <input type="number" name="queue_number" min="1" value="<%= ticket.queue_number || '' %>" placeholder="№">
+                        <button class="icon-save-button" type="submit" title="Сохранить номер">✓</button>
+                      </form>
                     <% } else { %>
-                      <span class="badge waiting-badge"><span class="badge-dot"></span>Ожидает</span>
+                      <span data-live-number><%= ticket.queue_number || '—' %></span>
                     <% } %>
                   </td>
 
-                  <% if (user.role === 'staff' || user.role === 'admin') { %>
-                    <td>
-                      <% if (ticket.status === 'waiting') { %>
-                        <form method="post" action="/tickets/<%= ticket.id %>/activate" class="activate-form">
-                          <input type="number" name="queue_number" min="1" placeholder="№" required>
-                          <button class="small-button" type="submit">На актив</button>
-                        </form>
+                  <td class="name-cell"><%= ticket.full_name %></td>
+                  <td><%= ticket.phone %></td>
+
+                  <% ['telegram', 'my_tax', 'yandex_pro'].forEach(field => { %>
+                    <% const dbField = field === 'telegram' ? 'has_telegram' : field === 'my_tax' ? 'has_my_tax' : 'has_yandex_pro'; %>
+                    <td class="center-cell">
+                      <% if (canEditServices) { %>
+                        <label class="table-service-toggle" title="Изменить">
+                          <input
+                            type="checkbox"
+                            data-service-toggle
+                            data-field="<%= field %>"
+                            <%= ticket[dbField] ? 'checked' : '' %>
+                          >
+                          <span class="table-check"><%= ticket[dbField] ? '✓' : '—' %></span>
+                        </label>
                       <% } else { %>
-                        <span class="done-mark">Готово</span>
+                        <span data-live-field="<%= field %>" class="feature-mark <%= ticket[dbField] ? 'yes' : 'no' %>"><%= ticket[dbField] ? '✓' : '—' %></span>
                       <% } %>
                     </td>
-                  <% } %>
+                  <% }) %>
+
+                  <td data-status-cell>
+                    <% if (canManage) { %>
+                      <form method="post" action="/tickets/<%= ticket.id %>/status" class="status-form">
+                        <select name="status" class="status-select <%= ticket.status === 'active' ? 'status-select-active' : 'status-select-waiting' %>" onchange="this.form.submit()">
+                          <option value="waiting" <%= ticket.status === 'waiting' ? 'selected' : '' %>>Ожидает</option>
+                          <option value="active" <%= ticket.status === 'active' ? 'selected' : '' %>>Переведен на актив</option>
+                        </select>
+                      </form>
+                    <% } else { %>
+                      <span data-live-status class="badge <%= ticket.status === 'active' ? 'active-badge' : 'waiting-badge' %>">
+                        <span class="badge-dot"></span><span data-status-text><%= ticket.status === 'active' ? 'Переведен на актив' : 'Ожидает' %></span>
+                      </span>
+                    <% } %>
+                  </td>
+
+                  <td>
+                    <% if (canDelete) { %>
+                      <form method="post" action="/tickets/<%= ticket.id %>/delete" class="delete-form" data-delete-form>
+                        <button class="delete-button" type="submit">Удалить</button>
+                      </form>
+                    <% } else { %>
+                      <span class="done-mark">—</span>
+                    <% } %>
+                  </td>
                 </tr>
               <% }) %>
             </tbody>
