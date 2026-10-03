@@ -30,7 +30,9 @@
     <main class="page">
       <section class="page-heading">
         <div>
-          <span class="eyebrow">Общий список талонов.</span>
+          <span class="eyebrow">Рабочая очередь</span>
+          <h1>Талоны</h1>
+          <p>Клиенты, сервисы и текущий статус — в одном списке.</p>
         </div>
         <div class="heading-actions">
           <div class="user-chip"><span class="status-dot"></span><%= user.username %></div>
@@ -74,8 +76,7 @@
             <thead>
               <tr>
                 <th>№ талона</th>
-                <th>ФИО</th>
-                <th>Телефон</th>
+                <th>Клиент</th>
                 <th class="center-cell">TG</th>
                 <th class="center-cell">МН</th>
                 <th class="center-cell">ЯП</th>
@@ -85,7 +86,7 @@
             </thead>
             <tbody>
               <% if (!tickets.length) { %>
-                <tr><td colspan="8" class="empty">Талонов пока нет</td></tr>
+                <tr><td colspan="7" class="empty">Талонов пока нет</td></tr>
               <% } %>
 
               <% tickets.forEach(ticket => { %>
@@ -107,8 +108,10 @@
                     <% } %>
                   </td>
 
-                  <td class="name-cell"><%= ticket.full_name %></td>
-                  <td><%= ticket.phone %></td>
+                  <td class="client-cell">
+                    <div class="client-name"><%= ticket.full_name %></div>
+                    <div class="client-phone"><%= ticket.phone %></div>
+                  </td>
 
                   <% ['telegram', 'my_tax', 'yandex_pro'].forEach(field => { %>
                     <% const dbField = field === 'telegram' ? 'has_telegram' : field === 'my_tax' ? 'has_my_tax' : 'has_yandex_pro'; %>
