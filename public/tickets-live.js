@@ -48,11 +48,6 @@ function getStatusText(status) {
   return 'Не готов';
 }
 
-function statusMatchesCurrentFilter(status) {
-  const statusFilter = new URLSearchParams(window.location.search).get('status') || 'all';
-  return statusFilter === 'all' || statusFilter === status;
-}
-
 function styleStatusBadge(badge, status) {
   if (!badge) return;
   badge.classList.toggle('active-badge', status === 'active');
@@ -174,11 +169,6 @@ events.onmessage = (event) => {
     if (!row) return;
 
     const status = getDisplayStatus(data.ticket);
-    if (!statusMatchesCurrentFilter(status)) {
-      row.remove();
-      return;
-    }
-
     row.dataset.ticketStatus = status;
     updateReadySelect(row.querySelector('[data-ready-select]'), Boolean(data.ticket.helper_ready));
     styleStatusBadge(row.querySelector('[data-live-status]'), status);
@@ -188,12 +178,6 @@ events.onmessage = (event) => {
   if (data.type === 'ticket-status-updated' && data.ticket) {
     const row = document.querySelector(`tr[data-ticket-id="${data.ticket.id}"]`);
     if (!row) return;
-
-    const status = getDisplayStatus(data.ticket);
-    if (!statusMatchesCurrentFilter(status)) {
-      row.remove();
-      return;
-    }
 
     // Роль-зависимые элементы статуса меняются по структуре (select ↔ badge/button),
     // поэтому для корректного интерфейса обновляем страницу только при переводе/возврате из актива.

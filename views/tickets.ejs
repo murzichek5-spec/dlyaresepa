@@ -30,7 +30,9 @@
     <main class="page">
       <section class="page-heading">
         <div>
+          <span class="eyebrow">Рабочая очередь</span>
           <h1>Талоны</h1>
+          <p>Клиенты, сервисы и текущий статус — в одном списке.</p>
         </div>
         <div class="heading-actions">
           <div class="user-chip"><span class="status-dot"></span><%= user.username %></div>
@@ -40,32 +42,16 @@
       <% if (error) { %><div class="alert error"><%= error %></div><% } %>
       <% if (success) { %><div class="alert success"><%= success %></div><% } %>
 
-      <form method="get" action="/tickets" class="content-card filters">
+      <form method="get" action="/tickets" class="content-card filters search-bar">
         <div class="filter-field search-field">
-          <label for="search">Поиск</label>
-          <input id="search" type="text" name="search" value="<%= search %>" placeholder="ФИО, телефон или №">
+          <label for="search">Поиск по талонам</label>
+          <input id="search" type="search" name="search" value="<%= search %>" placeholder="ФИО, телефон или № талона" autocomplete="off">
         </div>
 
-        <div class="filter-field">
-          <label for="status">Статус</label>
-          <select id="status" name="status">
-            <option value="all" <%= status === 'all' ? 'selected' : '' %>>Все</option>
-            <option value="not_ready" <%= status === 'not_ready' ? 'selected' : '' %>>Не готов</option>
-            <option value="ready" <%= status === 'ready' ? 'selected' : '' %>>Готов</option>
-            <option value="active" <%= status === 'active' ? 'selected' : '' %>>Переведен на актив</option>
-          </select>
-        </div>
-
-        <div class="filter-field">
-          <label for="date">Дата</label>
-          <select id="date" name="date">
-            <option value="today" <%= date === 'today' ? 'selected' : '' %>>Сегодня</option>
-            <option value="7days" <%= date === '7days' ? 'selected' : '' %>>7 дней</option>
-            <option value="all" <%= date === 'all' ? 'selected' : '' %>>Все время</option>
-          </select>
-        </div>
-
-        <button class="primary-button filter-button" type="submit">Применить</button>
+        <button class="primary-button filter-button" type="submit">Найти</button>
+        <% if (search) { %>
+          <a class="search-reset" href="/tickets">Сбросить</a>
+        <% } %>
       </form>
 
       <section class="content-card table-card">

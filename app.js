@@ -303,9 +303,6 @@ app.post('/tickets/:id/ready', requireRole('helper', 'admin'), (req, res) => {
 
 app.get('/tickets', requireAuth, (req, res) => {
   const search = (req.query.search || '').trim();
-  const status = req.query.status || 'all';
-  const date = req.query.date || 'today';
-
   const where = [];
   const params = [];
 
@@ -313,20 +310,6 @@ app.get('/tickets', requireAuth, (req, res) => {
     where.push('(t.full_name LIKE ? OR t.phone LIKE ? OR CAST(t.queue_number AS TEXT) LIKE ?)');
     const q = `%${search}%`;
     params.push(q, q, q);
-  }
-
-  if (status === 'active') {
-    where.push("t.status = 'active'");
-  } else if (status === 'ready') {
-    where.push("t.status <> 'active' AND t.helper_ready = 1");
-  } else if (status === 'not_ready') {
-    where.push("t.status <> 'active' AND t.helper_ready = 0");
-  }
-
-  if (date === 'today') {
-    where.push("date(t.created_at, 'localtime') = date('now', 'localtime')");
-  } else if (date === '7days') {
-    where.push("datetime(t.created_at) >= datetime('now', '-7 days')");
   }
 
   const sql = `
@@ -342,8 +325,6 @@ app.get('/tickets', requireAuth, (req, res) => {
   res.render('tickets', {
     tickets,
     search,
-    status,
-    date,
     error: req.query.error || null,
     success: req.query.success || null
   });
