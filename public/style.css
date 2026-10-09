@@ -492,6 +492,22 @@ tbody tr:last-child td { border-bottom: 0; }
   background: var(--accent-soft);
 }
 .activate-status-button:hover { background: #fff1ad; }
+.activate-status-button:disabled,
+.activate-status-button:disabled:hover {
+  opacity: .48;
+  background: #f5f4ef;
+  border-color: #e4e3dd;
+  color: #85857c;
+  cursor: not-allowed;
+}
+.activation-reason-hint {
+  display: block;
+  margin-top: 5px;
+  color: #9a7252;
+  font-size: 10px;
+  font-weight: 650;
+}
+.activation-reason-hint[hidden] { display: none; }
 .restore-status-button {
   color: #65655f;
   border: 1px solid #deded8;

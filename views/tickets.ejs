@@ -64,13 +64,15 @@
                 <th class="center-cell">ЯП</th>
                 <th>Статус</th>
                 <th>Причина обращения</th>
-                <th>Действие</th>
+                <% if (user.role === 'staff' || user.role === 'admin') { %>
+                  <th>Действие</th>
+                <% } %>
                 <th>Удалить</th>
               </tr>
             </thead>
             <tbody>
               <% if (!tickets.length) { %>
-                <tr><td colspan="9" class="empty">Талонов пока нет</td></tr>
+                <tr><td colspan="<%= user.role === 'helper' ? 8 : 9 %>" class="empty">Талонов пока нет</td></tr>
               <% } %>
 
               <% tickets.forEach(ticket => { %>
@@ -171,19 +173,18 @@
                     <% } %>
                   </td>
 
-                  <td class="ticket-action-cell">
-                    <% if (canManage) { %>
+                  <% if (canManage) { %>
+                    <td class="ticket-action-cell">
                       <form method="post" action="/tickets/<%= ticket.id %>/status" class="status-action-form" data-status-action-form>
                         <% if (ticket.status === 'active') { %>
                           <button class="restore-status-button" type="submit" name="action" value="restore">Вернуть статус</button>
                         <% } else { %>
-                          <button class="activate-status-button" type="submit" name="action" value="active">Перевести на актив</button>
+                          <button class="activate-status-button" type="submit" name="action" value="active" <%= !ticket.reason ? 'disabled' : '' %>>Перевести на актив</button>
+                          <span class="activation-reason-hint" data-activation-reason-hint <%= ticket.reason ? 'hidden' : '' %>>Сначала выбери причину</span>
                         <% } %>
                       </form>
-                    <% } else { %>
-                      <span class="done-mark">—</span>
-                    <% } %>
-                  </td>
+                    </td>
+                  <% } %>
 
                   <td>
                     <% if (canDelete) { %>

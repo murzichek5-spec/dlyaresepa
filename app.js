@@ -337,7 +337,7 @@ app.get('/tickets', requireAuth, (req, res) => {
 });
 
 // Причину обращения выбирает штатный сотрудник из фиксированного перечня.
-// Пустое значение разрешено для исправления ошибочного выбора.
+// До перевода на актив ошибочный выбор можно очистить.
 app.post('/tickets/:id/reason', requireRole('staff', 'admin'), (req, res) => {
   const ticketId = Number(req.params.id);
   const reason = req.body.reason;
@@ -349,6 +349,15 @@ app.post('/tickets/:id/reason', requireRole('staff', 'admin'), (req, res) => {
   const value = reason.trim();
   if (value !== '' && !allowedReasons.has(value)) {
     return res.status(400).json({ ok: false, error: 'Выбери причину из списка' });
+  }
+
+  // Уже активный талон нельзя оставить без причины; исправить на другую можно.
+  const currentTicket = db.prepare('SELECT status FROM tickets WHERE id = ?').get(ticketId);
+  if (!currentTicket) {
+    return res.status(404).json({ ok: false, error: 'Талон не найден' });
+  }
+  if (currentTicket.status === 'active' && !value) {
+    return res.status(409).json({ ok: false, error: 'У талона на активе причина обращения обязательна' });
   }
 
   const result = db.prepare(`
@@ -418,6 +427,11 @@ app.post('/tickets/:id/status', requireRole('staff', 'admin'), (req, res) => {
 
   if (action === 'active' && !ticket.queue_number) {
     return redirectWithError(res, 'Сначала присвой номер талона');
+  }
+
+  // Серверная проверка: UI можно обойти прямым POST-запросом.
+  if (action === 'active' && !allowedReasons.has(ticket.reason)) {
+    return redirectWithError(res, 'Сначала выбери причину обращения из списка');
   }
 
   const nextStatus = action === 'active' ? 'active' : 'waiting';

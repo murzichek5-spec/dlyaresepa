@@ -164,6 +164,8 @@ async function saveTicketReason(value) {
 
   const feedback = input.closest('[data-reason-picker]')?.querySelector('[data-reason-feedback]');
   input.disabled = true;
+  row.dataset.reasonSaving = '1';
+  updateActivationAvailability(row);
   try {
     const response = await fetch(`/tickets/${row.dataset.ticketId}/reason`, {
       method: 'POST',
@@ -184,7 +186,22 @@ async function saveTicketReason(value) {
       feedback.hidden = false;
     }
   } finally {
+    delete row.dataset.reasonSaving;
     input.disabled = false;
+    updateActivationAvailability(row);
+  }
+}
+
+// Активировать можно только после успешного сохранения причины в базе.
+function updateActivationAvailability(row) {
+  const button = row.querySelector('.activate-status-button');
+  if (!button) return; // Для активных талонов остаётся обычная кнопка возврата.
+  const reason = row.querySelector('[data-reason-input]')?.dataset.reasonSaved || '';
+  const canActivate = Boolean(reason) && row.dataset.reasonSaving !== '1';
+  button.disabled = !canActivate;
+  const hint = row.querySelector('[data-activation-reason-hint]');
+  if (hint) {
+    hint.hidden = Boolean(reason) || row.dataset.reasonSaving === '1';
   }
 }
 
@@ -199,6 +216,7 @@ function updateReason(row, value) {
     // Не перебиваем набираемый сотрудником поисковый запрос.
     if (input !== activeReasonInput) input.value = text;
   }
+  updateActivationAvailability(row);
 }
 
 if (reasonPopover) {
@@ -214,6 +232,7 @@ if (reasonPopover) {
 
   document.querySelectorAll('[data-reason-input]').forEach((input) => {
     input.dataset.reasonSaved = input.value;
+    updateActivationAvailability(input.closest('[data-ticket-id]'));
 
     input.addEventListener('focus', () => {
       input.select(); // Можно сразу начать вводить новое название вместо старого.
