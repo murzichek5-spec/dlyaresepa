@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QMIK | Мой профиль</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="background app-background">
+    <header class="topbar-shell">
+      <div class="topbar">
+        <a class="brand" href="/activation">
+          <span class="brand-logo">ദ്ദി（• ˕ •マ.ᐟ</span>
+          <span class="brand-name">QMIK 2.0</span>
+        </a>
+        <nav class="nav-links">
+          <a class="nav-link" href="/activation">Активация</a>
+          <a class="nav-link active" href="/activation/profile" aria-current="page">Мой профиль</a>
+          <form method="post" action="/logout"><button class="nav-link logout-button" type="submit">Выйти</button></form>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page profile-page">
+      <section class="page-heading">
+        <div>
+          <span class="eyebrow">Личный кабинет</span>
+          <h1>Мой профиль</h1>
+          <p>Имя, которое видят коллеги при закреплении кандидата</p>
+        </div>
+        <div class="user-chip"><span class="status-dot"></span><%= user.display_name || user.username %></div>
+      </section>
+
+      <% if (saved) { %><div class="alert success" role="status">Имя сохранено. Коллеги уже видят его в очереди.</div><% } %>
+      <% if (error) { %><div class="alert error" role="alert"><%= error %></div><% } %>
+
+      <section class="content-card profile-card">
+        <h2>Данные сотрудника</h2>
+        <form method="post" action="/activation/profile" class="profile-form">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <div class="input-group">
+            <label for="activation-login">Логин для входа</label>
+            <input id="activation-login" type="text" value="<%= user.username %>" disabled>
+            <span class="field-help">Логин не меняется — он нужен для авторизации.</span>
+          </div>
+          <div class="input-group">
+            <label for="display-name">Отображаемое имя</label>
+            <input id="display-name" type="text" name="display_name" value="<%= user.display_name || user.username %>" required minlength="2" maxlength="40" autocomplete="nickname" placeholder="Например, Александр">
+            <span class="field-help">От 2 до 40 символов. Это имя будет показано в строке «В работе у…».</span>
+          </div>
+          <button class="primary-button profile-save" type="submit">Сохранить имя</button>
+        </form>
+      </section>
+
+      <section class="profile-stats-section">
+        <div class="section-heading-row"><div><h2>Статистика за сегодня</h2><p>С начала дня по времени сервера. Обновляется при открытии страницы.</p></div></div>
+        <div class="profile-stats">
+          <article class="content-card stat-card">
+            <span class="stat-label">Взято кандидатов</span>
+            <strong class="stat-value"><%= stats.claimedToday %></strong>
+            <span class="stat-note">Уникальных талонов за день</span>
+          </article>
+          <article class="content-card stat-card">
+            <span class="stat-label">Сейчас в работе</span>
+            <strong class="stat-value"><%= stats.working %></strong>
+            <span class="stat-note">Закреплены за тобой</span>
+          </article>
+          <article class="content-card stat-card">
+            <span class="stat-label">Освобождено</span>
+            <strong class="stat-value"><%= stats.releasedToday %></strong>
+            <span class="stat-note">Твоих нажатий «Освободить»</span>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

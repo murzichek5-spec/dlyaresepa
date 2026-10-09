@@ -20,6 +20,7 @@
             <a class="nav-link" href="/tickets">Талоны</a>
           <% } %>
           <a class="nav-link active" href="/activation">Активация</a>
+          <% if (user.role === 'activation') { %><a class="nav-link" href="/activation/profile">Мой профиль</a><% } %>
           <form method="post" action="/logout">
             <button class="nav-link logout-button" type="submit">Выйти</button>
           </form>

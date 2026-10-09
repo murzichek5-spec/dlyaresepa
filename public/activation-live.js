@@ -185,6 +185,22 @@
       const row = [...tbody.children].find(item => item.dataset.activationId === String(data.ticketId));
       row?.remove();
       refresh();
+    } else if (data.type === 'activation-owner-renamed') {
+      for (const row of tbody.querySelectorAll('[data-activation-id]')) {
+        if (Number(row.dataset.activationOwner) === Number(data.ownerId)) {
+          setOwnerState(row, data.displayName);
+        }
+      }
+      if (Number(data.ownerId) === currentUserId) {
+        const userChip = document.querySelector('.heading-actions .user-chip');
+        if (userChip) {
+          const dot = userChip.querySelector('.status-dot');
+          userChip.textContent = '';
+          if (dot) userChip.append(dot);
+          userChip.append(document.createTextNode(data.displayName));
+        }
+      }
+      refresh();
     } else if (data.type === 'tickets-cleared') {
       tbody.replaceChildren();
       refresh();

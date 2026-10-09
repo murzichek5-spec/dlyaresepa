@@ -75,6 +75,20 @@ const userColumns = db.prepare('PRAGMA table_info(users)').all().map((c) => c.na
 if (!userColumns.includes('display_name')) db.exec('ALTER TABLE users ADD COLUMN display_name TEXT');
 if (!userColumns.includes('is_active')) db.exec('ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');
 
+// Дневной журнал активации: история взятий/освобождений не зависит от того,
+// удалили ли уже сам талон. Очищается в полночь вместе с талонами.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS activation_activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    ticket_id INTEGER NOT NULL,
+    action TEXT NOT NULL CHECK(action IN ('claim', 'release')),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_activation_activity_user_day
+    ON activation_activity(user_id, created_at, action);
+`);
+
 // Все открытые SSE-подключения. Через них отправляем изменения без перезагрузки.
 const liveClients = new Set();
 // Отдельный SSE-канал. Отдел активации никогда не получает данные новых/неактивных талонов.
@@ -139,8 +153,12 @@ function broadcast(type, payload = {}) {
 
 // Удаляем только талоны. Пользователи и логины остаются.
 function clearAllTickets() {
-  const result = db.prepare('DELETE FROM tickets').run();
-  db.prepare("DELETE FROM sqlite_sequence WHERE name = 'tickets'").run();
+  const result = db.transaction(() => {
+    const deleted = db.prepare('DELETE FROM tickets').run();
+    db.prepare('DELETE FROM activation_activity').run();
+    db.prepare("DELETE FROM sqlite_sequence WHERE name = 'tickets'").run();
+    return deleted;
+  })();
 
   console.log(`[cleanup] Удалено талонов: ${result.changes}`);
   broadcast('tickets-cleared');
@@ -156,6 +174,7 @@ function clearTicketsFromPreviousDays() {
   if (result.changes > 0) {
     console.log(`[cleanup] При запуске удалено старых талонов: ${result.changes}`);
   }
+  db.prepare("DELETE FROM activation_activity WHERE date(created_at, 'localtime') < date('now', 'localtime')").run();
 }
 
 function scheduleMidnightCleanup() {
@@ -235,8 +254,9 @@ function configureActivationAccounts() {
         const passwordHash = bcrypt.compareSync(account.password, existing.password_hash)
           ? existing.password_hash
           : bcrypt.hashSync(account.password, 12);
-        db.prepare('UPDATE users SET password_hash=?, display_name=?, is_active=1 WHERE id=?')
-          .run(passwordHash, account.username, existing.id);
+        // Имя, заданное сотрудником в профиле, не перезаписывается при деплое.
+        db.prepare('UPDATE users SET password_hash=?, is_active=1 WHERE id=?')
+          .run(passwordHash, existing.id);
       }
     }
 
@@ -382,6 +402,58 @@ const activationSelect = `
   WHERE t.status='active'
 `;
 
+function getActivationStats(userId) {
+  const daily = db.prepare(`
+    SELECT
+      COUNT(DISTINCT CASE WHEN action='claim' THEN ticket_id END) AS claimed_today,
+      COUNT(CASE WHEN action='release' THEN 1 END) AS released_today
+    FROM activation_activity
+    WHERE user_id=? AND date(created_at, 'localtime')=date('now', 'localtime')
+  `).get(userId);
+  const working = db.prepare(`
+    SELECT COUNT(*) AS total FROM tickets
+    WHERE activation_owner_id=? AND status='active'
+  `).get(userId).total;
+  return { claimedToday: daily.claimed_today, working, releasedToday: daily.released_today };
+}
+
+// Личный профиль есть только у активации: логин не меняется, меняется лишь подпись
+// в общей очереди. Статистика — за текущий день по времени сервера.
+app.get('/activation/profile', requireRole('activation'), (req, res) => {
+  if (!req.session.activation_csrf) req.session.activation_csrf = crypto.randomBytes(32).toString('hex');
+  res.render('profile', {
+    csrf: req.session.activation_csrf,
+    stats: getActivationStats(req.session.user.id),
+    saved: req.query.saved === '1',
+    error: null
+  });
+});
+
+app.post('/activation/profile', requireRole('activation'), (req, res) => {
+  const token = req.body._csrf;
+  const expected = req.session.activation_csrf || '';
+  const validCsrf = typeof token === 'string' && token.length > 0 && token.length === expected.length &&
+    crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+  if (!validCsrf) return res.status(403).send('Сессия изменилась. Обнови страницу и попробуй снова.');
+
+  const rawName = req.body.display_name;
+  const name = typeof rawName === 'string' ? rawName.trim().replace(/\s+/g, ' ') : '';
+  if ([...name].length < 2 || [...name].length > 40 || /[<>\x00-\x1f\x7f]/.test(name)) {
+    return res.status(400).render('profile', {
+      csrf: expected,
+      stats: getActivationStats(req.session.user.id),
+      saved: false,
+      error: 'Имя должно содержать от 2 до 40 символов без спецсимволов < и >.'
+    });
+  }
+
+  db.prepare("UPDATE users SET display_name=? WHERE id=? AND role='activation' AND is_active=1")
+    .run(name, req.session.user.id);
+  // При открытых вкладках у коллег новое имя видно немедленно.
+  sendActivationEvent('activation-owner-renamed', { ownerId: req.session.user.id, displayName: name });
+  res.redirect('/activation/profile?saved=1');
+});
+
 app.get('/activation', requireRole('activation', 'staff', 'admin'), (req, res) => {
   const tickets = db.prepare(activationSelect + ' ORDER BY t.updated_at DESC, t.id DESC').all();
   if (!req.session.activation_csrf) req.session.activation_csrf = crypto.randomBytes(32).toString('hex');
@@ -424,11 +496,17 @@ app.post('/activation/:id/claim', requireRole('activation'), requireActivationCs
   if (!Number.isSafeInteger(ticketId) || ticketId <= 0) {
     return res.status(400).json({ ok: false, error: 'Некорректный номер талона' });
   }
-  const result = db.prepare(`
-    UPDATE tickets SET activation_owner_id=?, activation_claimed_at=CURRENT_TIMESTAMP,
-                       updated_at=CURRENT_TIMESTAMP
-    WHERE id=? AND status='active' AND activation_owner_id IS NULL
-  `).run(req.session.user.id, ticketId);
+  const result = db.transaction(() => {
+    const updated = db.prepare(`
+      UPDATE tickets SET activation_owner_id=?, activation_claimed_at=CURRENT_TIMESTAMP,
+                         updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND status='active' AND activation_owner_id IS NULL
+    `).run(req.session.user.id, ticketId);
+    if (updated.changes) db.prepare(`
+      INSERT INTO activation_activity (user_id, ticket_id, action) VALUES (?, ?, 'claim')
+    `).run(req.session.user.id, ticketId);
+    return updated;
+  })();
   if (!result.changes) {
     const row = db.prepare('SELECT status, activation_owner_id FROM tickets WHERE id=?').get(ticketId);
     return res.status(row ? 409 : 404).json({ ok: false, error: row && row.activation_owner_id
@@ -446,15 +524,22 @@ app.post('/activation/:id/release', requireRole('activation', 'admin'), requireA
     return res.status(400).json({ ok: false, error: 'Некорректный номер талона' });
   }
   const admin = req.session.user.role === 'admin';
-  const result = admin ? db.prepare(`
-    UPDATE tickets SET activation_owner_id=NULL, activation_claimed_at=NULL,
-                       updated_at=CURRENT_TIMESTAMP
-    WHERE id=? AND status='active' AND activation_owner_id IS NOT NULL
-  `).run(ticketId) : db.prepare(`
-    UPDATE tickets SET activation_owner_id=NULL, activation_claimed_at=NULL,
-                       updated_at=CURRENT_TIMESTAMP
-    WHERE id=? AND status='active' AND activation_owner_id=?
-  `).run(ticketId, req.session.user.id);
+  const result = db.transaction(() => {
+    const updated = admin ? db.prepare(`
+      UPDATE tickets SET activation_owner_id=NULL, activation_claimed_at=NULL,
+                         updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND status='active' AND activation_owner_id IS NOT NULL
+    `).run(ticketId) : db.prepare(`
+      UPDATE tickets SET activation_owner_id=NULL, activation_claimed_at=NULL,
+                         updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND status='active' AND activation_owner_id=?
+    `).run(ticketId, req.session.user.id);
+    // Учитываем лишь освобождения, сделанные самим владельцем, не администратором.
+    if (!admin && updated.changes) db.prepare(`
+      INSERT INTO activation_activity (user_id, ticket_id, action) VALUES (?, ?, 'release')
+    `).run(req.session.user.id, ticketId);
+    return updated;
+  })();
   if (!result.changes) {
     return res.status(409).json({ ok: false, error: 'Талон уже свободен или закреплён не за тобой' });
   }

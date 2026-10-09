@@ -818,3 +818,29 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 .activation-notice.error { color: #9e3636; border-color: #f5c5c5; background: #fff3f3; }
 .activation-notice[hidden] { display: none; }
+
+/* v17: личный профиль активации без изменения общего дизайна. */
+.profile-page { max-width: 860px; }
+.profile-card { padding: 25px; }
+.profile-card h2,
+.profile-stats-section h2 { margin: 0 0 20px; font-size: 18px; letter-spacing: -.3px; }
+.profile-form { display: flex; flex-direction: column; gap: 20px; max-width: 490px; }
+.profile-form input:disabled { background: #f6f6f3; color: #8a8a82; cursor: not-allowed; }
+.profile-save { min-height: 46px; padding: 0 24px; border-radius: 11px; align-self: flex-start; }
+.field-help { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.profile-stats-section { margin-top: 28px; }
+.profile-stats-section .section-heading-row { margin-bottom: 14px; }
+.profile-stats-section h2 { margin-bottom: 6px; }
+.profile-stats-section p { margin: 0; color: var(--muted); font-size: 13px; }
+.profile-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.stat-card { display: flex; flex-direction: column; gap: 12px; padding: 22px; }
+.stat-label { font-size: 13px; font-weight: 700; color: #5c5c55; }
+.stat-value { font-size: 40px; font-weight: 800; line-height: 1; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
+.stat-note { font-size: 11px; color: var(--muted); line-height: 1.4; }
+@media (max-width: 620px) {
+  .profile-card { padding: 18px; }
+  .profile-stats { grid-template-columns: 1fr; gap: 9px; }
+  .stat-card { padding: 17px; gap: 8px; }
+  .stat-value { font-size: 34px; }
+  .profile-save { width: 100%; }
+}
