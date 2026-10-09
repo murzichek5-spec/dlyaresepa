@@ -64,6 +64,198 @@ function updateReadySelect(select, ready) {
   select.classList.toggle('status-select-not-ready', !ready);
 }
 
+// Причина обращения сохраняется только при выборе варианта из подсказок.
+// Один всплывающий список вынесен из таблицы, чтобы его не обрезала прокрутка.
+const reasonPopover = document.getElementById('reason-options-popover');
+const reasonOptions = reasonPopover ? [...reasonPopover.querySelectorAll('[data-reason-option]')] : [];
+let activeReasonInput = null;
+let visibleReasonOptions = [];
+let highlightedReasonIndex = -1;
+
+function normalizeReason(text) {
+  return String(text || '').toLocaleLowerCase('ru-RU').trim().replace(/\s+/g, ' ');
+}
+
+function filterReasonOptions(query) {
+  if (!reasonPopover) return;
+  const words = normalizeReason(query).split(' ').filter(Boolean);
+  visibleReasonOptions = [];
+
+  reasonOptions.forEach((option) => {
+    const name = normalizeReason(option.dataset.reasonValue);
+    const visible = words.every((word) => name.includes(word));
+    option.hidden = !visible;
+    if (visible) visibleReasonOptions.push(option);
+  });
+
+  reasonPopover.querySelectorAll('[data-reason-group]').forEach((group) => {
+    group.hidden = !group.querySelector('[data-reason-option]:not([hidden])');
+  });
+  const empty = reasonPopover.querySelector('[data-reason-empty]');
+  if (empty) empty.hidden = visibleReasonOptions.length !== 0;
+  setHighlightedReason(-1);
+}
+
+function setHighlightedReason(index) {
+  highlightedReasonIndex = index;
+  reasonOptions.forEach((option) => option.classList.remove('is-highlighted'));
+  if (!activeReasonInput) return;
+
+  const option = visibleReasonOptions[index];
+  if (option) {
+    option.classList.add('is-highlighted');
+    option.scrollIntoView({ block: 'nearest' });
+    activeReasonInput.setAttribute('aria-activedescendant', option.id);
+  } else {
+    activeReasonInput.removeAttribute('aria-activedescendant');
+  }
+}
+
+function positionReasonPopover() {
+  if (!reasonPopover || !activeReasonInput || reasonPopover.hidden) return;
+  const bounds = activeReasonInput.getBoundingClientRect();
+  const width = Math.min(325, window.innerWidth - 20);
+  const left = Math.max(10, Math.min(bounds.left, window.innerWidth - width - 10));
+  const roomBelow = window.innerHeight - bounds.bottom - 12;
+  const roomAbove = bounds.top - 12;
+  const placeAbove = roomBelow < 210 && roomAbove > roomBelow;
+  const available = placeAbove ? roomAbove : roomBelow;
+  const height = Math.max(80, Math.min(315, available));
+
+  reasonPopover.style.left = `${left}px`;
+  reasonPopover.style.width = `${width}px`;
+  reasonPopover.style.maxHeight = `${height}px`;
+  reasonPopover.style.top = placeAbove ? `${Math.max(8, bounds.top - height - 5)}px` : `${bounds.bottom + 5}px`;
+}
+
+function closeReasonPopover(restoreDraft = false) {
+  if (!reasonPopover) return;
+  if (activeReasonInput) {
+    if (restoreDraft) activeReasonInput.value = activeReasonInput.dataset.reasonSaved || '';
+    activeReasonInput.setAttribute('aria-expanded', 'false');
+    activeReasonInput.removeAttribute('aria-activedescendant');
+  }
+  reasonPopover.hidden = true;
+  activeReasonInput = null;
+  highlightedReasonIndex = -1;
+}
+
+function openReasonPopover(input, showAll = false) {
+  if (!reasonPopover) return;
+  if (activeReasonInput && activeReasonInput !== input) closeReasonPopover(true);
+  activeReasonInput = input;
+  input.setAttribute('aria-expanded', 'true');
+  const feedback = input.closest('[data-reason-picker]')?.querySelector('[data-reason-feedback]');
+  if (feedback) feedback.hidden = true;
+  filterReasonOptions(showAll ? '' : input.value);
+  reasonPopover.hidden = false;
+  positionReasonPopover();
+}
+
+async function saveTicketReason(value) {
+  const input = activeReasonInput;
+  const row = input?.closest('[data-ticket-id]');
+  if (!input || !row) return;
+
+  const previous = input.dataset.reasonSaved || '';
+  input.value = value;
+  closeReasonPopover();
+  if (value === previous) return;
+
+  const feedback = input.closest('[data-reason-picker]')?.querySelector('[data-reason-feedback]');
+  input.disabled = true;
+  try {
+    const response = await fetch(`/tickets/${row.dataset.ticketId}/reason`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: value })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error || 'Не удалось сохранить причину');
+    }
+    input.dataset.reasonSaved = result.ticket.reason || '';
+    input.value = input.dataset.reasonSaved;
+    if (feedback) feedback.hidden = true;
+  } catch (error) {
+    input.value = previous;
+    if (feedback) {
+      feedback.textContent = error.message || 'Не удалось сохранить причину';
+      feedback.hidden = false;
+    }
+  } finally {
+    input.disabled = false;
+  }
+}
+
+function updateReason(row, value) {
+  const text = value || '';
+  const readonly = row.querySelector('[data-live-reason]');
+  if (readonly) readonly.textContent = text || '—';
+
+  const input = row.querySelector('[data-reason-input]');
+  if (input) {
+    input.dataset.reasonSaved = text;
+    // Не перебиваем набираемый сотрудником поисковый запрос.
+    if (input !== activeReasonInput) input.value = text;
+  }
+}
+
+if (reasonPopover) {
+  reasonOptions.forEach((option, index) => {
+    option.id = `reason-option-${index}`;
+    option.addEventListener('pointerdown', (event) => event.preventDefault());
+    option.addEventListener('click', () => saveTicketReason(option.dataset.reasonValue));
+  });
+
+  reasonPopover.querySelector('[data-reason-clear]')?.addEventListener('click', () => {
+    saveTicketReason('');
+  });
+
+  document.querySelectorAll('[data-reason-input]').forEach((input) => {
+    input.dataset.reasonSaved = input.value;
+
+    input.addEventListener('focus', () => {
+      input.select(); // Можно сразу начать вводить новое название вместо старого.
+      openReasonPopover(input, true);
+    });
+    input.addEventListener('click', () => openReasonPopover(input, true));
+    input.addEventListener('input', () => openReasonPopover(input));
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeReasonPopover(true);
+        input.blur();
+      } else if (event.key === 'Tab') {
+        closeReasonPopover(true);
+      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (reasonPopover.hidden) openReasonPopover(input, true);
+        if (!visibleReasonOptions.length) return;
+        const direction = event.key === 'ArrowDown' ? 1 : -1;
+        const next = (highlightedReasonIndex + direction + visibleReasonOptions.length) % visibleReasonOptions.length;
+        setHighlightedReason(next);
+      } else if (event.key === 'Enter' && !reasonPopover.hidden) {
+        event.preventDefault();
+        const choice = visibleReasonOptions[highlightedReasonIndex] || visibleReasonOptions[0];
+        if (choice) saveTicketReason(choice.dataset.reasonValue);
+      }
+    });
+  });
+
+  document.addEventListener('pointerdown', (event) => {
+    if (!activeReasonInput) return;
+    if (reasonPopover.contains(event.target) || activeReasonInput.closest('[data-reason-picker]').contains(event.target)) return;
+    closeReasonPopover(true);
+  });
+  document.addEventListener('scroll', (event) => {
+    if (activeReasonInput && !reasonPopover.contains(event.target)) closeReasonPopover(true);
+  }, true);
+  window.addEventListener('resize', () => {
+    if (activeReasonInput) positionReasonPopover();
+  });
+}
+
 // Сервисы меняются хелпером прямо в общей таблице.
 document.querySelectorAll('[data-service-toggle]').forEach((checkbox) => {
   checkbox.addEventListener('change', async () => {
@@ -161,6 +353,12 @@ events.onmessage = (event) => {
   if (data.type === 'ticket-number-updated' && data.ticket) {
     const row = document.querySelector(`tr[data-ticket-id="${data.ticket.id}"]`);
     if (row) updateNumber(row, data.ticket.queue_number);
+    return;
+  }
+
+  if (data.type === 'ticket-reason-updated' && data.ticket) {
+    const row = document.querySelector(`tr[data-ticket-id="${data.ticket.id}"]`);
+    if (row) updateReason(row, data.ticket.reason);
     return;
   }
 

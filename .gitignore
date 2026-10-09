@@ -1,5 +1,8 @@
 node_modules/
 .env
-db/office.db
+.env.*
+!.env.example
+db/*.db
+db/*.db-*
 *.log
 .DS_Store

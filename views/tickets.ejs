@@ -63,12 +63,14 @@
                 <th class="center-cell">МН</th>
                 <th class="center-cell">ЯП</th>
                 <th>Статус</th>
+                <th>Причина обращения</th>
+                <th>Действие</th>
                 <th>Удалить</th>
               </tr>
             </thead>
             <tbody>
               <% if (!tickets.length) { %>
-                <tr><td colspan="7" class="empty">Талонов пока нет</td></tr>
+                <tr><td colspan="9" class="empty">Талонов пока нет</td></tr>
               <% } %>
 
               <% tickets.forEach(ticket => { %>
@@ -130,23 +132,56 @@
                         </select>
                       <% } %>
                     <% } else if (canManage) { %>
-                      <div class="staff-status-control">
-                        <span data-live-status class="badge <%= displayStatus === 'active' ? 'active-badge' : displayStatus === 'ready' ? 'ready-badge' : 'not-ready-badge' %>">
-                          <span class="badge-dot"></span>
-                          <span data-status-text><%= displayStatus === 'active' ? 'Переведен на актив' : displayStatus === 'ready' ? 'Готов' : 'Не готов' %></span>
-                        </span>
-                        <form method="post" action="/tickets/<%= ticket.id %>/status" class="status-action-form" data-status-action-form>
-                          <% if (ticket.status === 'active') { %>
-                            <button class="restore-status-button" type="submit" name="action" value="restore">Вернуть статус</button>
-                          <% } else { %>
-                            <button class="activate-status-button" type="submit" name="action" value="active">Перевести на актив</button>
-                          <% } %>
-                        </form>
-                      </div>
+                      <span data-live-status class="badge <%= displayStatus === 'active' ? 'active-badge' : displayStatus === 'ready' ? 'ready-badge' : 'not-ready-badge' %>">
+                        <span class="badge-dot"></span>
+                        <span data-status-text><%= displayStatus === 'active' ? 'Переведен на актив' : displayStatus === 'ready' ? 'Готов' : 'Не готов' %></span>
+                      </span>
                     <% } else { %>
                       <span data-live-status class="badge <%= displayStatus === 'active' ? 'active-badge' : displayStatus === 'ready' ? 'ready-badge' : 'not-ready-badge' %>">
                         <span class="badge-dot"></span><span data-status-text><%= displayStatus === 'active' ? 'Переведен на актив' : displayStatus === 'ready' ? 'Готов' : 'Не готов' %></span>
                       </span>
+                    <% } %>
+                  </td>
+
+                  <td class="reason-cell">
+                    <% if (canManage) { %>
+                      <div class="reason-picker" data-reason-picker>
+                        <label class="visually-hidden" for="reason-<%= ticket.id %>">Причина обращения</label>
+                        <div class="reason-input-wrap">
+                          <input
+                            id="reason-<%= ticket.id %>"
+                            class="reason-input"
+                            type="text"
+                            value="<%= ticket.reason || '' %>"
+                            placeholder="Выбрать причину"
+                            autocomplete="off"
+                            role="combobox"
+                            aria-autocomplete="list"
+                            aria-haspopup="listbox"
+                            aria-controls="reason-options-popover"
+                            aria-expanded="false"
+                            data-reason-input
+                          >
+                          <span class="reason-chevron" aria-hidden="true">⌄</span>
+                        </div>
+                        <span class="reason-feedback" data-reason-feedback role="status" hidden></span>
+                      </div>
+                    <% } else { %>
+                      <span class="reason-readonly" data-live-reason><%= ticket.reason || '—' %></span>
+                    <% } %>
+                  </td>
+
+                  <td class="ticket-action-cell">
+                    <% if (canManage) { %>
+                      <form method="post" action="/tickets/<%= ticket.id %>/status" class="status-action-form" data-status-action-form>
+                        <% if (ticket.status === 'active') { %>
+                          <button class="restore-status-button" type="submit" name="action" value="restore">Вернуть статус</button>
+                        <% } else { %>
+                          <button class="activate-status-button" type="submit" name="action" value="active">Перевести на актив</button>
+                        <% } %>
+                      </form>
+                    <% } else { %>
+                      <span class="done-mark">—</span>
                     <% } %>
                   </td>
 
@@ -167,6 +202,26 @@
       </section>
     </main>
   </div>
+
+  <% if (user.role === 'staff' || user.role === 'admin') { %>
+    <!-- Единый выпадающий список для всех талонов: находится вне прокручиваемой таблицы. -->
+    <div id="reason-options-popover" class="reason-options-popover" role="listbox" hidden>
+      <div class="reason-popover-heading">
+        <span>Причина обращения</span>
+        <button class="reason-clear-button" data-reason-clear type="button">Очистить</button>
+      </div>
+      <% reasonGroups.forEach((group, index) => { %>
+        <div class="reason-group reason-group-<%= index + 1 %>" role="group" aria-label="<%= group.label %>" data-reason-group>
+          <div class="reason-group-title"><%= group.label %></div>
+          <% group.values.forEach((value) => { %>
+            <button type="button" role="option" aria-selected="false" tabindex="-1"
+              class="reason-option" data-reason-option data-reason-value="<%= value %>"><%= value %></button>
+          <% }) %>
+        </div>
+      <% }) %>
+      <p class="reason-no-results" data-reason-empty hidden>Совпадений нет</p>
+    </div>
+  <% } %>
 
   <script src="/tickets-live.js"></script>
 </body>

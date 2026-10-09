@@ -6,6 +6,8 @@ const bcrypt = require('bcryptjs');
 const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
+const reasonGroups = require('./data/reasons.json');
+const allowedReasons = new Set(reasonGroups.flatMap((group) => group.values));
 
 const app = express();
 app.set('trust proxy', 1);
@@ -25,6 +27,9 @@ db.exec(schema);
 const ticketColumns = db.prepare('PRAGMA table_info(tickets)').all().map((column) => column.name);
 if (!ticketColumns.includes('helper_ready')) {
   db.exec('ALTER TABLE tickets ADD COLUMN helper_ready INTEGER NOT NULL DEFAULT 0');
+}
+if (!ticketColumns.includes('reason')) {
+  db.exec('ALTER TABLE tickets ADD COLUMN reason TEXT');
 }
 
 // Все открытые SSE-подключения. Через них отправляем изменения без перезагрузки.
@@ -324,10 +329,39 @@ app.get('/tickets', requireAuth, (req, res) => {
   const tickets = db.prepare(sql).all(...params);
   res.render('tickets', {
     tickets,
+    reasonGroups,
     search,
     error: req.query.error || null,
     success: req.query.success || null
   });
+});
+
+// Причину обращения выбирает штатный сотрудник из фиксированного перечня.
+// Пустое значение разрешено для исправления ошибочного выбора.
+app.post('/tickets/:id/reason', requireRole('staff', 'admin'), (req, res) => {
+  const ticketId = Number(req.params.id);
+  const reason = req.body.reason;
+
+  if (!Number.isSafeInteger(ticketId) || ticketId <= 0 || typeof reason !== 'string') {
+    return res.status(400).json({ ok: false, error: 'Некорректные данные' });
+  }
+
+  const value = reason.trim();
+  if (value !== '' && !allowedReasons.has(value)) {
+    return res.status(400).json({ ok: false, error: 'Выбери причину из списка' });
+  }
+
+  const result = db.prepare(`
+    UPDATE tickets SET reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+  `).run(value || null, ticketId);
+
+  if (!result.changes) {
+    return res.status(404).json({ ok: false, error: 'Талон не найден' });
+  }
+
+  const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
+  broadcast('ticket-reason-updated', { ticket });
+  res.json({ ok: true, ticket });
 });
 
 // Штатный сотрудник может присвоить, исправить или очистить номер талона.
