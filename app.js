@@ -6,7 +6,9 @@ const bcrypt = require('bcryptjs');
 const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const reasonGroups = require('./data/reasons.json');
+const activationAccounts = require('./config/activation-accounts');
 const allowedReasons = new Set(reasonGroups.flatMap((group) => group.values));
 
 const app = express();
@@ -31,9 +33,96 @@ if (!ticketColumns.includes('helper_ready')) {
 if (!ticketColumns.includes('reason')) {
   db.exec('ALTER TABLE tickets ADD COLUMN reason TEXT');
 }
+// Закрепление талона за сотрудником активации. NULL = свободен.
+if (!ticketColumns.includes('activation_owner_id')) {
+  db.exec('ALTER TABLE tickets ADD COLUMN activation_owner_id INTEGER REFERENCES users(id)');
+}
+if (!ticketColumns.includes('activation_claimed_at')) {
+  db.exec('ALTER TABLE tickets ADD COLUMN activation_claimed_at DATETIME');
+}
+
+// Роль activation добавляется в существующую базу без потери пользователей или талонов.
+// Старые версии users допускали только helper/staff/admin (CHECK constraint).
+const usersDDL = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()?.sql || '';
+if (!usersDDL.includes("'activation'")) {
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE users_with_activation (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          role TEXT NOT NULL CHECK(role IN ('helper', 'staff', 'admin', 'activation')),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO users_with_activation (id, username, password_hash, role, created_at)
+          SELECT id, username, password_hash, role, created_at FROM users;
+        DROP TABLE users;
+        ALTER TABLE users_with_activation RENAME TO users;
+      `);
+    })();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+  const brokenLinks = db.pragma('foreign_key_check');
+  if (brokenLinks.length) throw new Error('Ошибка внешних ключей после миграции роли activation');
+  console.log('[migration] Добавлена роль activation');
+}
+
+// Личные учётные записи: миграция добавляет имя и возможность отключать старый общий логин.
+const userColumns = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+if (!userColumns.includes('display_name')) db.exec('ALTER TABLE users ADD COLUMN display_name TEXT');
+if (!userColumns.includes('is_active')) db.exec('ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');
 
 // Все открытые SSE-подключения. Через них отправляем изменения без перезагрузки.
 const liveClients = new Set();
+// Отдельный SSE-канал. Отдел активации никогда не получает данные новых/неактивных талонов.
+const activationClients = new Set();
+
+function sendActivationEvent(type, payload = {}) {
+  const message = `data: ${JSON.stringify({ type, ...payload })}\n\n`;
+  for (const client of activationClients) {
+    try {
+      client.write(message);
+    } catch (_) {
+      activationClients.delete(client);
+    }
+  }
+}
+
+function activationTicket(ticket) {
+  return {
+    id: ticket.id,
+    full_name: ticket.full_name,
+    phone: ticket.phone,
+    queue_number: ticket.queue_number,
+    reason: ticket.reason,
+    has_telegram: ticket.has_telegram,
+    has_my_tax: ticket.has_my_tax,
+    has_yandex_pro: ticket.has_yandex_pro,
+    activation_owner_id: ticket.activation_owner_id,
+    activation_owner_name: ticket.activation_owner_id
+      ? (db.prepare("SELECT COALESCE(NULLIF(display_name, ''), username) AS name FROM users WHERE id = ?")
+          .get(ticket.activation_owner_id)?.name || 'Сотрудник')
+      : null
+  };
+}
+
+function broadcastActivation(type, payload) {
+  if (type === 'tickets-cleared') {
+    sendActivationEvent('tickets-cleared');
+  } else if (type === 'ticket-deleted') {
+    sendActivationEvent('activation-ticket-removed', { ticketId: payload.ticketId });
+  } else if (type === 'ticket-status-updated' && payload.ticket?.status !== 'active') {
+    sendActivationEvent('activation-ticket-removed', { ticketId: payload.ticket.id });
+  } else if (
+    ['ticket-status-updated', 'ticket-number-updated', 'ticket-reason-updated', 'services-updated', 'activation-owner-updated'].includes(type)
+    && payload.ticket?.status === 'active'
+  ) {
+    sendActivationEvent('activation-ticket-updated', { ticket: activationTicket(payload.ticket) });
+  }
+}
 
 function broadcast(type, payload = {}) {
   const message = `data: ${JSON.stringify({ type, ...payload })}\n\n`;
@@ -45,6 +134,7 @@ function broadcast(type, payload = {}) {
       liveClients.delete(client);
     }
   }
+  broadcastActivation(type, payload);
 }
 
 // Удаляем только талоны. Пользователи и логины остаются.
@@ -101,6 +191,73 @@ function seedUser(username, password, role) {
 
 seedUser(process.env.HELPER_LOGIN || 'helper', process.env.HELPER_PASSWORD || 'helper123', 'helper');
 seedUser(process.env.STAFF_LOGIN || 'staff', process.env.STAFF_PASSWORD || 'staff123', 'staff');
+// 11 персональных логинов активации: имена заданы в config/activation-accounts.js,
+// пароли — только через индивидуальные переменные Render/.env, генератор не нужен.
+// Отсутствующий пароль = учётная запись отключена; ранее существовавшие лишние
+// учётные записи активации также отключаются, но не удаляются из SQLite.
+function configureActivationAccounts() {
+  const ready = [];
+  const seen = new Set();
+
+  for (const account of activationAccounts) {
+    if (!/^[a-zA-Z0-9_.-]{3,40}$/.test(account.username) || seen.has(account.username)) {
+      throw new Error('Некорректный или повторяющийся логин активации в config/activation-accounts.js');
+    }
+    seen.add(account.username);
+    const password = process.env[account.passwordEnv];
+    if (!password) continue;
+    if (password.length < 6) {
+      throw new Error(`Пароль ${account.passwordEnv} должен содержать не менее 6 символов`);
+    }
+    ready.push({ username: account.username, password });
+  }
+
+  // Если кто-то ранее пользовался таким логином под другой ролью,
+  // не перезаписываем его учётку и не меняем роль автоматически.
+  for (const account of ready) {
+    const old = db.prepare('SELECT role FROM users WHERE username = ?').get(account.username);
+    if (old && old.role !== 'activation') {
+      throw new Error(`Логин ${account.username} уже занят другой ролью`);
+    }
+  }
+
+  db.transaction(() => {
+    db.prepare("UPDATE users SET is_active = 0 WHERE role = 'activation'").run();
+
+    for (const account of ready) {
+      const existing = db.prepare('SELECT id, password_hash FROM users WHERE username = ?').get(account.username);
+      if (!existing) {
+        db.prepare(`
+          INSERT INTO users (username, password_hash, role, display_name, is_active)
+          VALUES (?, ?, 'activation', ?, 1)
+        `).run(account.username, bcrypt.hashSync(account.password, 12), account.username);
+      } else {
+        const passwordHash = bcrypt.compareSync(account.password, existing.password_hash)
+          ? existing.password_hash
+          : bcrypt.hashSync(account.password, 12);
+        db.prepare('UPDATE users SET password_hash=?, display_name=?, is_active=1 WHERE id=?')
+          .run(passwordHash, account.username, existing.id);
+      }
+    }
+
+    // Если у выключенных старых аккаунтов были кандидаты, освобождаем их:
+    // иначе талон может остаться закреплённым за несуществующей сменой.
+    db.prepare(`
+      UPDATE tickets
+      SET activation_owner_id=NULL, activation_claimed_at=NULL, updated_at=CURRENT_TIMESTAMP
+      WHERE activation_owner_id IN (
+        SELECT id FROM users WHERE role='activation' AND is_active=0
+      )
+    `).run();
+  })();
+
+  console.log(`[auth] Личные аккаунты активации: ${ready.length} активны из ${activationAccounts.length}`);
+  if (ready.length < activationAccounts.length) {
+    console.warn('[auth] Для остальных аккаунтов активации не заданы пароли в Environment — вход отключён.');
+  }
+}
+configureActivationAccounts();
+
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -121,6 +278,16 @@ app.use(session({
 }));
 
 app.use((req, res, next) => {
+  if (req.session.user) {
+    const current = db.prepare('SELECT id, username, role, display_name, is_active FROM users WHERE id=?')
+      .get(req.session.user.id);
+    if (!current || !current.is_active || current.role !== req.session.user.role) {
+      req.session.user = null;
+    } else {
+      req.session.user = { id: current.id, username: current.username, role: current.role,
+        display_name: current.display_name || current.username };
+    }
+  }
   res.locals.user = req.session.user || null;
   next();
 });
@@ -149,6 +316,7 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
   if (!req.session.user) return res.redirect('/login');
   if (req.session.user.role === 'helper') return res.redirect('/create');
+  if (req.session.user.role === 'activation') return res.redirect('/activation');
   return res.redirect('/tickets');
 });
 
@@ -162,15 +330,17 @@ app.post('/login', (req, res) => {
   const password = req.body.password || '';
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
 
-  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+  if (!user || !user.is_active || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).render('login', { error: 'Неверный логин или пароль' });
   }
 
   req.session.user = {
     id: user.id,
     username: user.username,
-    role: user.role
+    role: user.role,
+    display_name: user.display_name || user.username
   };
+  req.session.activation_csrf = crypto.randomBytes(32).toString('hex');
 
   res.redirect('/');
 });
@@ -180,7 +350,7 @@ app.post('/logout', requireAuth, (req, res) => {
 });
 
 // Одно SSE-подключение держится открытым и получает события об изменениях талонов.
-app.get('/events', requireAuth, (req, res) => {
+app.get('/events', requireRole('helper', 'staff', 'admin'), (req, res) => {
   res.set({
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
@@ -199,6 +369,98 @@ app.get('/events', requireAuth, (req, res) => {
     clearInterval(keepAlive);
     liveClients.delete(res);
   });
+});
+
+// Страница отдела активации — только переданные талоны.
+const activationSelect = `
+  SELECT t.id, t.full_name, t.phone, t.queue_number, t.reason,
+         t.has_telegram, t.has_my_tax, t.has_yandex_pro,
+         t.activation_owner_id, t.activation_claimed_at,
+         COALESCE(NULLIF(u.display_name, ''), u.username) AS activation_owner_name
+  FROM tickets t
+  LEFT JOIN users u ON u.id=t.activation_owner_id
+  WHERE t.status='active'
+`;
+
+app.get('/activation', requireRole('activation', 'staff', 'admin'), (req, res) => {
+  const tickets = db.prepare(activationSelect + ' ORDER BY t.updated_at DESC, t.id DESC').all();
+  if (!req.session.activation_csrf) req.session.activation_csrf = crypto.randomBytes(32).toString('hex');
+  res.render('activation', { tickets, activationCsrf: req.session.activation_csrf });
+});
+
+app.get('/activation/events', requireRole('activation', 'staff', 'admin'), (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'X-Accel-Buffering': 'no',
+    Connection: 'keep-alive'
+  });
+  res.flushHeaders();
+  res.write('retry: 3000\n\n');
+  activationClients.add(res);
+  // Переподключение после обрыва синхронизирует весь список.
+  const snapshot = db.prepare(activationSelect + ' ORDER BY t.updated_at DESC, t.id DESC').all();
+  res.write(`data: ${JSON.stringify({ type: 'activation-snapshot', tickets: snapshot })}\n\n`);
+  const keepAlive = setInterval(() => res.write(': keep-alive\n\n'), 25000);
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    activationClients.delete(res);
+  });
+});
+
+function requireActivationCsrf(req, res, next) {
+  const supplied = req.get('X-CSRF-Token') || '';
+  const expected = req.session.activation_csrf || '';
+  if (!supplied || !expected || supplied.length !== expected.length ||
+      !crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) {
+    return res.status(403).json({ ok: false, error: 'Обнови страницу и попробуй снова' });
+  }
+  next();
+}
+
+// Атомарное закрепление: два сотрудника одновременно взять талон не смогут.
+app.post('/activation/:id/claim', requireRole('activation'), requireActivationCsrf, (req, res) => {
+  const ticketId = Number(req.params.id);
+  if (!Number.isSafeInteger(ticketId) || ticketId <= 0) {
+    return res.status(400).json({ ok: false, error: 'Некорректный номер талона' });
+  }
+  const result = db.prepare(`
+    UPDATE tickets SET activation_owner_id=?, activation_claimed_at=CURRENT_TIMESTAMP,
+                       updated_at=CURRENT_TIMESTAMP
+    WHERE id=? AND status='active' AND activation_owner_id IS NULL
+  `).run(req.session.user.id, ticketId);
+  if (!result.changes) {
+    const row = db.prepare('SELECT status, activation_owner_id FROM tickets WHERE id=?').get(ticketId);
+    return res.status(row ? 409 : 404).json({ ok: false, error: row && row.activation_owner_id
+      ? 'Кандидата уже забрал другой сотрудник' : 'Этот талон недоступен для взятия в работу' });
+  }
+  const ticket = db.prepare('SELECT * FROM tickets WHERE id=?').get(ticketId);
+  broadcast('activation-owner-updated', { ticket });
+  res.json({ ok: true, ticket: activationTicket(ticket) });
+});
+
+// Освободить талон может только его владелец; администратор — при необходимости.
+app.post('/activation/:id/release', requireRole('activation', 'admin'), requireActivationCsrf, (req, res) => {
+  const ticketId = Number(req.params.id);
+  if (!Number.isSafeInteger(ticketId) || ticketId <= 0) {
+    return res.status(400).json({ ok: false, error: 'Некорректный номер талона' });
+  }
+  const admin = req.session.user.role === 'admin';
+  const result = admin ? db.prepare(`
+    UPDATE tickets SET activation_owner_id=NULL, activation_claimed_at=NULL,
+                       updated_at=CURRENT_TIMESTAMP
+    WHERE id=? AND status='active' AND activation_owner_id IS NOT NULL
+  `).run(ticketId) : db.prepare(`
+    UPDATE tickets SET activation_owner_id=NULL, activation_claimed_at=NULL,
+                       updated_at=CURRENT_TIMESTAMP
+    WHERE id=? AND status='active' AND activation_owner_id=?
+  `).run(ticketId, req.session.user.id);
+  if (!result.changes) {
+    return res.status(409).json({ ok: false, error: 'Талон уже свободен или закреплён не за тобой' });
+  }
+  const ticket = db.prepare('SELECT * FROM tickets WHERE id=?').get(ticketId);
+  broadcast('activation-owner-updated', { ticket });
+  res.json({ ok: true, ticket: activationTicket(ticket) });
 });
 
 app.get('/create', requireRole('helper', 'admin'), (req, res) => {
@@ -306,7 +568,7 @@ app.post('/tickets/:id/ready', requireRole('helper', 'admin'), (req, res) => {
   res.json({ ok: true, ticket: updatedTicket });
 });
 
-app.get('/tickets', requireAuth, (req, res) => {
+app.get('/tickets', requireRole('helper', 'staff', 'admin'), (req, res) => {
   const search = (req.query.search || '').trim();
   const where = [];
   const params = [];
@@ -438,9 +700,12 @@ app.post('/tickets/:id/status', requireRole('staff', 'admin'), (req, res) => {
 
   db.prepare(`
     UPDATE tickets
-    SET status = ?, assigned_by = ?, updated_at = CURRENT_TIMESTAMP
+    SET status = ?, assigned_by = ?,
+        activation_owner_id = CASE WHEN ? = 'waiting' THEN NULL ELSE activation_owner_id END,
+        activation_claimed_at = CASE WHEN ? = 'waiting' THEN NULL ELSE activation_claimed_at END,
+        updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(nextStatus, req.session.user.id, ticketId);
+  `).run(nextStatus, req.session.user.id, nextStatus, nextStatus, ticketId);
 
   const updatedTicket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
   broadcast('ticket-status-updated', { ticket: updatedTicket });

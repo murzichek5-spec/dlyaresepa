@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QMIK | Активация</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="background app-background">
+    <header class="topbar-shell">
+      <div class="topbar">
+        <a class="brand" href="/">
+          <span class="brand-logo">ദ്ദി（• ˕ •マ.ᐟ</span>
+          <span class="brand-name">QMIK 2.0</span>
+        </a>
+        <nav class="nav-links">
+          <% if (user.role === 'staff' || user.role === 'admin') { %>
+            <% if (user.role === 'admin') { %><a class="nav-link" href="/create">Создать талон</a><% } %>
+            <a class="nav-link" href="/tickets">Талоны</a>
+          <% } %>
+          <a class="nav-link active" href="/activation">Активация</a>
+          <form method="post" action="/logout">
+            <button class="nav-link logout-button" type="submit">Выйти</button>
+          </form>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page" id="activation-page"
+          data-user-id="<%= user.id %>" data-role="<%= user.role %>"
+          data-csrf="<%= activationCsrf %>">
+      <section class="page-heading">
+        <div>
+          <h1>Активация</h1>
+          <p>Кандидаты, переданные штатным сотрудником на актив</p>
+        </div>
+        <div class="heading-actions">
+          <span class="activation-count" aria-live="polite">Талонов: <strong id="activation-count"><%= tickets.length %></strong></span>
+          <div class="user-chip"><span class="status-dot"></span><%= user.display_name || user.username %></div>
+        </div>
+      </section>
+
+      <section class="content-card activation-search-card">
+        <div class="filter-field search-field">
+          <label for="activation-search">Поиск по активным талонам</label>
+          <input id="activation-search" type="search" placeholder="ФИО, телефон или № талона" autocomplete="off">
+        </div>
+      </section>
+
+      <section class="content-card table-card">
+        <div class="table-scroll">
+          <table class="tickets-table activation-table">
+            <thead>
+              <tr>
+                <th>№ талона</th>
+                <th>Клиент</th>
+                <th class="center-cell">TG</th>
+                <th class="center-cell">МН</th>
+                <th class="center-cell">ЯП</th>
+                <th>Причина обращения</th>
+                <th>В работе</th>
+                <% if (user.role === 'activation' || user.role === 'admin') { %><th>Действие</th><% } %>
+              </tr>
+            </thead>
+            <tbody id="activation-ticket-rows">
+              <% tickets.forEach(ticket => { %>
+                <tr data-activation-id="<%= ticket.id %>" data-activation-owner="<%= ticket.activation_owner_id || '' %>">
+                  <td class="ticket-number" data-activation-number><%= ticket.queue_number || '—' %></td>
+                  <td class="client-cell">
+                    <div class="client-name" data-activation-name><%= ticket.full_name %></div>
+                    <div class="client-phone" data-activation-phone><%= ticket.phone %></div>
+                  </td>
+                  <% ['telegram', 'my_tax', 'yandex_pro'].forEach(field => { %>
+                    <% const col = field === 'telegram' ? 'has_telegram' : field === 'my_tax' ? 'has_my_tax' : 'has_yandex_pro'; %>
+                    <td class="center-cell"><span class="feature-mark <%= ticket[col] ? 'yes' : 'no' %>" data-activation-service="<%= field %>"><%= ticket[col] ? '✓' : '—' %></span></td>
+                  <% }) %>
+                  <td class="reason-cell"><span class="reason-readonly" data-activation-reason><%= ticket.reason || '—' %></span></td>
+                  <td><span class="activation-owner-chip <%= ticket.activation_owner_id ? 'busy' : 'free' %>" data-activation-owner-name><%= ticket.activation_owner_id ? 'У ' + (ticket.activation_owner_name || 'сотрудника') : 'Свободен' %></span></td>
+                  <% if (user.role === 'activation' || user.role === 'admin') { %>
+                    <td class="activation-actions">
+                      <button type="button" class="activation-action" data-activation-action hidden></button>
+                    </td>
+                  <% } %>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+          <div class="activation-empty" id="activation-empty" <%= tickets.length ? 'hidden' : '' %>>Пока нет талонов на активации</div>
+          <div class="activation-empty" id="activation-search-empty" hidden>Ничего не найдено</div>
+        </div>
+      </section>
+      <div class="activation-notice" id="activation-notice" role="status" aria-live="polite" hidden></div>
+    </main>
+  </div>
+  <script src="/activation-live.js"></script>
+</body>
+</html>

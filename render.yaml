@@ -19,5 +19,27 @@ services:
         value: staff
       - key: STAFF_PASSWORD
         sync: false
+      - key: ACTIVATION_PASSWORD_ADOPTFOUND
+        sync: false
+      - key: ACTIVATION_PASSWORD_CULTLDA
+        sync: false
+      - key: ACTIVATION_PASSWORD_ALASTORGRUM
+        sync: false
+      - key: ACTIVATION_PASSWORD_CONTROLLER2001
+        sync: false
+      - key: ACTIVATION_PASSWORD_MEMERTENS
+        sync: false
+      - key: ACTIVATION_PASSWORD_VALDR_QUICK
+        sync: false
+      - key: ACTIVATION_PASSWORD_MARKEVI4
+        sync: false
+      - key: ACTIVATION_PASSWORD_SANGRERRR
+        sync: false
+      - key: ACTIVATION_PASSWORD_SHIZUKAXIII
+        sync: false
+      - key: ACTIVATION_PASSWORD_MISHOK22
+        sync: false
+      - key: ACTIVATION_PASSWORD_IWANTTOFLYXXX
+        sync: false
       - key: TZ
         value: Europe/Moscow

@@ -20,6 +20,9 @@
             <a class="nav-link" href="/create">Создать талон</a>
           <% } %>
           <a class="nav-link active" href="/tickets">Талоны</a>
+          <% if (user.role === 'staff' || user.role === 'admin') { %>
+            <a class="nav-link" href="/activation">Активация</a>
+          <% } %>
           <form method="post" action="/logout">
             <button class="nav-link logout-button" type="submit">Выйти</button>
           </form>

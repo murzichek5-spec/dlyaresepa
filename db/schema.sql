@@ -2,7 +2,9 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
-  role TEXT NOT NULL CHECK(role IN ('helper', 'staff', 'admin')),
+  display_name TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  role TEXT NOT NULL CHECK(role IN ('helper', 'staff', 'admin', 'activation')),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -19,6 +21,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   status TEXT NOT NULL DEFAULT 'waiting' CHECK(status IN ('waiting', 'active')),
   created_by INTEGER NOT NULL,
   assigned_by INTEGER,
+  activation_owner_id INTEGER REFERENCES users(id),
+  activation_claimed_at DATETIME,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(created_by) REFERENCES users(id),

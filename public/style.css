@@ -741,3 +741,80 @@ tbody tr:last-child td { border-bottom: 0; }
   .helper-ticket-main { flex-direction: column; }
   .heading-actions { width: 100%; justify-content: space-between; }
 }
+
+/* Отдел активации: компактная страница только для просмотра переданных талонов. */
+.activation-search-card { padding: 15px; margin-bottom: 14px; box-shadow: none; }
+.activation-table { min-width: 750px; }
+.activation-table th:last-child,
+.activation-table td:last-child { white-space: nowrap; }
+.activation-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  color: #705800;
+  font-size: 12px;
+  font-weight: 650;
+}
+.activation-count strong { font-variant-numeric: tabular-nums; }
+.activation-empty {
+  padding: 38px 16px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+}
+.activation-empty[hidden],
+.activation-table tr[hidden] { display: none; }
+@media (max-width: 700px) {
+  .activation-count { padding: 8px 11px; }
+  .activation-search-card { padding: 12px; }
+}
+
+/* v14: закрепление кандидата за сотрудником активации */
+.activation-table { min-width: 880px; }
+.activation-owner-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9px;
+  padding: 7px 10px;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+}
+.activation-owner-chip.free { background: #edf7ed; color: #347347; }
+.activation-owner-chip.busy { background: #f4f4f0; color: #595952; }
+.activation-actions { min-width: 130px; }
+.activation-action {
+  border: 1px solid #e8cd61;
+  background: #ffe27a;
+  color: #292500;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.activation-action.secondary { border-color: #e6e6df; background: white; color: #6d6d66; }
+.activation-action:hover:not(:disabled) { filter: brightness(.97); }
+.activation-action:disabled { opacity: .55; cursor: wait; }
+.activation-action[hidden] { display: none; }
+.activation-notice {
+  position: sticky;
+  bottom: 18px;
+  max-width: 530px;
+  margin: 14px auto;
+  border-radius: 12px;
+  background: #fff6da;
+  border: 1px solid #f1d791;
+  color: #5f4c18;
+  padding: 13px 16px;
+  text-align: center;
+  font-size: 13px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .06);
+}
+.activation-notice.error { color: #9e3636; border-color: #f5c5c5; background: #fff3f3; }
+.activation-notice[hidden] { display: none; }
