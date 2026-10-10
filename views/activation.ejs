@@ -60,6 +60,7 @@
                 <th class="center-cell">МН</th>
                 <th class="center-cell">ЯП</th>
                 <th>Причина обращения</th>
+                <th>Комментарий</th>
                 <th>В работе</th>
                 <% if (user.role === 'activation' || user.role === 'admin') { %><th>Действие</th><% } %>
               </tr>
@@ -77,6 +78,7 @@
                     <td class="center-cell"><span class="feature-mark <%= ticket[col] ? 'yes' : 'no' %>" data-activation-service="<%= field %>"><%= ticket[col] ? '✓' : '—' %></span></td>
                   <% }) %>
                   <td class="reason-cell"><span class="reason-readonly" data-activation-reason><%= ticket.reason || '—' %></span></td>
+                  <%- include('partials/comment-cell', { ticket }) %>
                   <td><span class="activation-owner-chip <%= ticket.activation_owner_id ? 'busy' : 'free' %>" data-activation-owner-name><%= ticket.activation_owner_id ? 'У ' + (ticket.activation_owner_name || 'сотрудника') : 'Свободен' %></span></td>
                   <% if (user.role === 'activation' || user.role === 'admin') { %>
                     <td class="activation-actions">
@@ -95,6 +97,7 @@
       <div class="activation-notice" id="activation-notice" role="status" aria-live="polite" hidden></div>
     </main>
   </div>
+  <script src="/comment-editor.js"></script>
   <script src="/activation-live.js"></script>
 </body>
 </html>

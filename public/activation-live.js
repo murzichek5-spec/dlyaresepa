@@ -45,6 +45,7 @@
     reason.dataset.activationReason = '';
     reasonCell.append(reason);
     row.append(reasonCell);
+    row.append(window.QmikComments.makeCell());
     const ownerCell = makeElement('td');
     const owner = makeElement('span', 'activation-owner-chip');
     owner.dataset.activationOwnerName = '';
@@ -86,6 +87,7 @@
     row.querySelector('[data-activation-name]').textContent = ticket.full_name || '';
     row.querySelector('[data-activation-phone]').textContent = ticket.phone || '';
     row.querySelector('[data-activation-reason]').textContent = ticket.reason || '—';
+    window.QmikComments.apply(row, ticket.comment, ticket.comment_version);
     for (const [name, field] of [['telegram', 'has_telegram'], ['my_tax', 'has_my_tax'], ['yandex_pro', 'has_yandex_pro']]) {
       setMark(row, name, ticket[field]);
     }

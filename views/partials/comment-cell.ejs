@@ -1,0 +1,15 @@
+<td class="comment-cell">
+  <div class="ticket-comment" data-comment-widget data-comment-version="<%= ticket.comment_version || 0 %>">
+    <div class="comment-preview" data-comment-preview title="<%= ticket.comment || '' %>"><%= ticket.comment || '—' %></div>
+    <button class="comment-edit-button" type="button" data-comment-edit aria-label="Редактировать комментарий">Изменить</button>
+    <div class="comment-editor" data-comment-editor hidden>
+      <label class="visually-hidden" for="comment-<%= ticket.id %>">Комментарий к талону</label>
+      <textarea id="comment-<%= ticket.id %>" data-comment-input maxlength="1000" rows="3" placeholder="Комментарий к кандидату"><%= ticket.comment || '' %></textarea>
+      <div class="comment-editor-actions">
+        <button class="comment-save" data-comment-save type="button">Сохранить</button>
+        <button class="comment-cancel" data-comment-cancel type="button">Отмена</button>
+      </div>
+      <span class="comment-feedback" data-comment-feedback role="status" hidden></span>
+    </div>
+  </div>
+</td>

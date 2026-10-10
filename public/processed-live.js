@@ -29,6 +29,7 @@
     const reasonCell = element('td','reason-cell');
     const reason = element('span','reason-readonly'); reason.dataset.processedReason = '';
     reasonCell.append(reason); tr.append(reasonCell);
+    tr.append(window.QmikComments.makeCell());
     const state = element('td');
     const badge = element('span','badge ready-badge');
     badge.append(element('span','badge-dot'),element('span','', 'Обработан'));
@@ -46,6 +47,7 @@
     row.querySelector('[data-processed-name]').textContent = ticket.full_name || '';
     row.querySelector('[data-processed-phone]').textContent = ticket.phone || '';
     row.querySelector('[data-processed-reason]').textContent = ticket.reason || '—';
+    window.QmikComments.apply(row, ticket.comment, ticket.comment_version);
     row.querySelector('[data-processed-owner]').textContent = ticket.completed_by_name || '—';
     row.querySelector('[data-processed-date]').textContent = ticket.completed_local || '—';
     for (const [field,col] of [['telegram','has_telegram'],['my_tax','has_my_tax'],['yandex_pro','has_yandex_pro']]) {

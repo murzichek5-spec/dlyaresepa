@@ -33,6 +33,13 @@ if (!ticketColumns.includes('helper_ready')) {
 if (!ticketColumns.includes('reason')) {
   db.exec('ALTER TABLE tickets ADD COLUMN reason TEXT');
 }
+// Один общий комментарий ко всем этапам талона; версия защищает от перезаписи.
+if (!ticketColumns.includes('comment')) {
+  db.exec("ALTER TABLE tickets ADD COLUMN comment TEXT NOT NULL DEFAULT ''");
+}
+if (!ticketColumns.includes('comment_version')) {
+  db.exec('ALTER TABLE tickets ADD COLUMN comment_version INTEGER NOT NULL DEFAULT 0');
+}
 // Закрепление талона за сотрудником активации. NULL = свободен.
 if (!ticketColumns.includes('activation_owner_id')) {
   db.exec('ALTER TABLE tickets ADD COLUMN activation_owner_id INTEGER REFERENCES users(id)');
@@ -130,6 +137,8 @@ function activationTicket(ticket) {
     phone: ticket.phone,
     queue_number: ticket.queue_number,
     reason: ticket.reason,
+    comment: ticket.comment,
+    comment_version: ticket.comment_version,
     has_telegram: ticket.has_telegram,
     has_my_tax: ticket.has_my_tax,
     has_yandex_pro: ticket.has_yandex_pro,
@@ -158,6 +167,23 @@ function broadcastActivation(type, payload) {
     && payload.ticket?.status === 'active' && !payload.ticket.completed_at
   ) {
     sendActivationEvent('activation-ticket-updated', { ticket: activationTicket(payload.ticket) });
+  }
+}
+
+// Комментарий отправляем только на экран текущего этапа талона, без утечки
+// неактивных талонов в канал активации и наоборот.
+function broadcastComment(ticket) {
+  const update = { ticketId: ticket.id, comment: ticket.comment, comment_version: ticket.comment_version };
+  if (ticket.completed_at) {
+    const processed = db.prepare(processedSelect + ' AND t.id=?').get(ticket.id);
+    if (processed) sendProcessedEvent('processed-ticket-updated', { ticket: processed });
+  } else if (ticket.status === 'active') {
+    sendActivationEvent('activation-ticket-updated', { ticket: activationTicket(ticket) });
+  } else {
+    const message = `data: ${JSON.stringify({ type: 'ticket-comment-updated', ...update })}\n\n`;
+    for (const client of liveClients) {
+      try { client.write(message); } catch (_) { liveClients.delete(client); }
+    }
   }
 }
 
@@ -420,7 +446,7 @@ app.get('/events', requireRole('helper', 'staff', 'admin'), (req, res) => {
 
 // Страница отдела активации — только переданные талоны.
 const activationSelect = `
-  SELECT t.id, t.full_name, t.phone, t.queue_number, t.reason,
+  SELECT t.id, t.full_name, t.phone, t.queue_number, t.reason, t.comment, t.comment_version,
          t.has_telegram, t.has_my_tax, t.has_yandex_pro,
          t.activation_owner_id, t.activation_claimed_at,
          COALESCE(NULLIF(u.display_name, ''), u.username) AS activation_owner_name
@@ -430,7 +456,7 @@ const activationSelect = `
 `;
 
 const processedSelect = `
-  SELECT t.id, t.full_name, t.phone, t.queue_number, t.reason,
+  SELECT t.id, t.full_name, t.phone, t.queue_number, t.reason, t.comment, t.comment_version,
          t.has_telegram, t.has_my_tax, t.has_yandex_pro, t.completed_at,
          datetime(t.completed_at, 'localtime') AS completed_local,
          COALESCE(NULLIF(u.display_name, ''), u.username) AS completed_by_name
@@ -490,7 +516,8 @@ app.post('/activation/profile', requireRole('activation'), (req, res) => {
 // Архив завершённых талонов открыт всем отделам только на чтение.
 app.get('/processed', requireRole('helper', 'staff', 'admin', 'activation'), (req, res) => {
   const tickets = db.prepare(processedSelect + ' ORDER BY t.completed_at DESC, t.id DESC').all();
-  res.render('processed', { tickets });
+  if (!req.session.activation_csrf) req.session.activation_csrf = crypto.randomBytes(32).toString('hex');
+  res.render('processed', { tickets, commentCsrf: req.session.activation_csrf });
 });
 
 app.get('/processed/events', requireRole('helper', 'staff', 'admin', 'activation'), (req, res) => {
@@ -540,6 +567,41 @@ function requireActivationCsrf(req, res, next) {
   }
   next();
 }
+
+// Единый комментарий: сохраняется вместе с талоном и доступен на всех этапах.
+// Обновление условное по версии: если другой сотрудник уже изменил текст, не затираем его.
+app.post('/tickets/:id/comment', requireRole('helper', 'staff', 'activation', 'admin'), requireActivationCsrf, (req, res) => {
+  const ticketId = Number(req.params.id);
+  const content = req.body?.comment;
+  const version = req.body?.version;
+  if (!Number.isSafeInteger(ticketId) || ticketId <= 0 || typeof content !== 'string' ||
+      [...content].length > 1000 || !Number.isSafeInteger(version) || version < 0) {
+    return res.status(400).json({ ok: false, error: 'Комментарий должен содержать не более 1000 символов' });
+  }
+  const text = content.trim();
+  const ticket = db.prepare('SELECT * FROM tickets WHERE id=?').get(ticketId);
+  if (!ticket) return res.status(404).json({ ok: false, error: 'Талон не найден' });
+
+  const role = req.session.user.role;
+  const allowed = ticket.completed_at
+    ? ['helper', 'staff', 'activation', 'admin'].includes(role)
+    : ticket.status === 'active'
+      ? ['activation', 'staff', 'admin'].includes(role)
+      : ['helper', 'staff', 'admin'].includes(role);
+  if (!allowed) return res.status(403).json({ ok: false, error: 'Нет доступа к талону на этом этапе' });
+
+  // Версию сравниваем внутри SQL, чтобы два одновременных сохранения не перезаписали друг друга.
+  const result = db.prepare(`
+    UPDATE tickets SET comment=?, comment_version=comment_version+1, updated_at=CURRENT_TIMESTAMP
+    WHERE id=? AND comment_version=?
+  `).run(text, ticketId, version);
+  const updated = db.prepare('SELECT * FROM tickets WHERE id=?').get(ticketId);
+  if (!result.changes) return res.status(409).json({ ok: false,
+    error: 'Комментарий уже изменил другой сотрудник. Отмени редактирование и открой его заново.',
+    comment: updated.comment, comment_version: updated.comment_version });
+  broadcastComment(updated);
+  res.json({ ok: true, comment: updated.comment, comment_version: updated.comment_version });
+});
 
 // Атомарное закрепление: два сотрудника одновременно взять талон не смогут.
 app.post('/activation/:id/claim', requireRole('activation'), requireActivationCsrf, (req, res) => {
@@ -749,7 +811,9 @@ app.get('/tickets', requireRole('helper', 'staff', 'admin'), (req, res) => {
   `;
 
   const tickets = db.prepare(sql).all(...params);
+  if (!req.session.activation_csrf) req.session.activation_csrf = crypto.randomBytes(32).toString('hex');
   res.render('tickets', {
+    commentCsrf: req.session.activation_csrf,
     tickets,
     reasonGroups,
     search,

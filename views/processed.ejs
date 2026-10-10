@@ -25,7 +25,7 @@
       </div>
     </header>
 
-    <main class="page" id="processed-page">
+    <main class="page" id="processed-page" data-comment-csrf="<%= commentCsrf %>">
       <section class="page-heading">
         <div><h1>Обработанные талоны</h1></div>
         <div class="heading-actions">
@@ -45,7 +45,7 @@
             <thead><tr>
               <th>№ талона</th><th>Клиент</th>
               <th class="center-cell">TG</th><th class="center-cell">МН</th><th class="center-cell">ЯП</th>
-              <th>Причина обращения</th><th>Статус</th><th>Специалист</th><th>Завершён</th>
+              <th>Причина обращения</th><th>Комментарий</th><th>Статус</th><th>Специалист</th><th>Завершён</th>
             </tr></thead>
             <tbody id="processed-ticket-rows">
               <% tickets.forEach(ticket => { %>
@@ -56,6 +56,7 @@
                     <td class="center-cell"><span class="feature-mark <%= ticket[col] ? 'yes' : 'no' %>" data-processed-service="<%= field %>"><%= ticket[col] ? '✓' : '—' %></span></td>
                   <% }) %>
                   <td class="reason-cell"><span class="reason-readonly" data-processed-reason><%= ticket.reason || '—' %></span></td>
+                  <%- include('partials/comment-cell', { ticket }) %>
                   <td><span class="badge ready-badge"><span class="badge-dot"></span><span>Обработан</span></span></td>
                   <td data-processed-owner><%= ticket.completed_by_name || '—' %></td>
                   <td class="processed-date" data-processed-date><%= ticket.completed_local || '—' %></td>
@@ -69,6 +70,7 @@
       </section>
     </main>
   </div>
+  <script src="/comment-editor.js"></script>
   <script src="/processed-live.js"></script>
 </body>
 </html>

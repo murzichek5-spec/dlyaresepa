@@ -365,6 +365,12 @@ events.onmessage = (event) => {
     return;
   }
 
+  if (data.type === 'ticket-comment-updated') {
+    const row = document.querySelector(`tr[data-ticket-id="${data.ticketId}"]`);
+    if (row) window.QmikComments.apply(row, data.comment, data.comment_version);
+    return;
+  }
+
   if (data.type === 'services-updated' && data.ticket) {
     const row = document.querySelector(`tr[data-ticket-id="${data.ticket.id}"]`);
     if (!row) return;

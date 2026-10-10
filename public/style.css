@@ -852,3 +852,58 @@ tbody tr:last-child td { border-bottom: 0; }
 .processed-table { min-width: 1020px; }
 .processed-date { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .processed-table tr[hidden] { display:none; }
+
+/* v21: общий комментарий с компактным редактором на всех этапах */
+.comment-cell { min-width: 175px; max-width: 255px; vertical-align: middle; }
+.ticket-comment { min-width: 150px; }
+.comment-preview {
+  max-width: 230px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #404039;
+  max-height: 70px;
+  overflow: hidden;
+}
+.comment-edit-button {
+  border: 0;
+  background: transparent;
+  color: #8a7020;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 0;
+  cursor: pointer;
+}
+.comment-edit-button:hover { color: #4d3900; text-decoration: underline; }
+.comment-editor { margin-top: 6px; width: 225px; max-width: 100%; }
+.comment-editor[hidden], .comment-edit-button[hidden], .comment-feedback[hidden] { display: none; }
+.comment-editor textarea {
+  display: block;
+  width: 100%;
+  min-height: 78px;
+  resize: vertical;
+  box-sizing: border-box;
+  border: 1px solid #dddcd1;
+  border-radius: 9px;
+  background: #fff;
+  padding: 9px;
+  color: #222;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.comment-editor textarea:focus { outline: 2px solid #ffe48c; border-color: #e5bb4d; }
+.comment-editor-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.comment-save, .comment-cancel {
+  border: 1px solid #e6dfc5;
+  border-radius: 8px;
+  padding: 7px 9px;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.comment-save { background: #ffdf65; color: #352c00; }
+.comment-cancel { background: #fff; color: #63635c; }
+.comment-save:disabled, .comment-cancel:disabled { opacity: .5; cursor: wait; }
+.comment-feedback { display: block; font-size: 11px; line-height: 1.35; color: #a03939; margin-top: 7px; }
