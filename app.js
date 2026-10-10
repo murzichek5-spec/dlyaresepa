@@ -40,6 +40,15 @@ if (!ticketColumns.includes('activation_owner_id')) {
 if (!ticketColumns.includes('activation_claimed_at')) {
   db.exec('ALTER TABLE tickets ADD COLUMN activation_claimed_at DATETIME');
 }
+// Завершение фиксируем отдельно от status, чтобы не менять CHECK в старых базах.
+// waiting -> active -> active + completed_at (архив «Обработанные талоны»).
+if (!ticketColumns.includes('completed_at')) {
+  db.exec('ALTER TABLE tickets ADD COLUMN completed_at DATETIME');
+}
+if (!ticketColumns.includes('completed_by')) {
+  db.exec('ALTER TABLE tickets ADD COLUMN completed_by INTEGER REFERENCES users(id)');
+}
+db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_completed_at ON tickets(completed_at)');
 
 // Роль activation добавляется в существующую базу без потери пользователей или талонов.
 // Старые версии users допускали только helper/staff/admin (CHECK constraint).
@@ -93,6 +102,7 @@ db.exec(`
 const liveClients = new Set();
 // Отдельный SSE-канал. Отдел активации никогда не получает данные новых/неактивных талонов.
 const activationClients = new Set();
+const processedClients = new Set();
 
 function sendActivationEvent(type, payload = {}) {
   const message = `data: ${JSON.stringify({ type, ...payload })}\n\n`;
@@ -102,6 +112,14 @@ function sendActivationEvent(type, payload = {}) {
     } catch (_) {
       activationClients.delete(client);
     }
+  }
+}
+
+function sendProcessedEvent(type, payload = {}) {
+  const message = `data: ${JSON.stringify({ type, ...payload })}\n\n`;
+  for (const client of processedClients) {
+    try { client.write(message); }
+    catch (_) { processedClients.delete(client); }
   }
 }
 
@@ -126,20 +144,29 @@ function activationTicket(ticket) {
 function broadcastActivation(type, payload) {
   if (type === 'tickets-cleared') {
     sendActivationEvent('tickets-cleared');
+    sendProcessedEvent('tickets-cleared');
   } else if (type === 'ticket-deleted') {
     sendActivationEvent('activation-ticket-removed', { ticketId: payload.ticketId });
+  } else if (type === 'ticket-completed') {
+    sendActivationEvent('activation-ticket-removed', { ticketId: payload.ticket.id });
+    const completed = db.prepare(processedSelect + ' AND t.id=?').get(payload.ticket.id);
+    if (completed) sendProcessedEvent('processed-ticket-updated', { ticket: completed });
   } else if (type === 'ticket-status-updated' && payload.ticket?.status !== 'active') {
     sendActivationEvent('activation-ticket-removed', { ticketId: payload.ticket.id });
   } else if (
     ['ticket-status-updated', 'ticket-number-updated', 'ticket-reason-updated', 'services-updated', 'activation-owner-updated'].includes(type)
-    && payload.ticket?.status === 'active'
+    && payload.ticket?.status === 'active' && !payload.ticket.completed_at
   ) {
     sendActivationEvent('activation-ticket-updated', { ticket: activationTicket(payload.ticket) });
   }
 }
 
 function broadcast(type, payload = {}) {
-  const message = `data: ${JSON.stringify({ type, ...payload })}\n\n`;
+  // Не раскрываем данные переданных талонов в рабочем SSE-канале зала/штатника.
+  const publicPayload = payload.ticket?.status === 'active'
+    ? (type === 'ticket-status-updated' ? { ticket: { id: payload.ticket.id, status: 'active' } }
+      : { ticketId: payload.ticket.id }) : payload;
+  const message = `data: ${JSON.stringify({ type, ...publicPayload })}\n\n`;
 
   for (const client of liveClients) {
     try {
@@ -399,22 +426,28 @@ const activationSelect = `
          COALESCE(NULLIF(u.display_name, ''), u.username) AS activation_owner_name
   FROM tickets t
   LEFT JOIN users u ON u.id=t.activation_owner_id
-  WHERE t.status='active'
+  WHERE t.status='active' AND t.completed_at IS NULL
+`;
+
+const processedSelect = `
+  SELECT t.id, t.full_name, t.phone, t.queue_number, t.reason,
+         t.has_telegram, t.has_my_tax, t.has_yandex_pro, t.completed_at,
+         datetime(t.completed_at, 'localtime') AS completed_local,
+         COALESCE(NULLIF(u.display_name, ''), u.username) AS completed_by_name
+  FROM tickets t
+  LEFT JOIN users u ON u.id=t.completed_by
+  WHERE t.status='active' AND t.completed_at IS NOT NULL
 `;
 
 function getActivationStats(userId) {
+  // Именно завершённые этим специалистом талоны, а не просто взятые в работу.
   const daily = db.prepare(`
-    SELECT
-      COUNT(DISTINCT CASE WHEN action='claim' THEN ticket_id END) AS claimed_today,
-      COUNT(CASE WHEN action='release' THEN 1 END) AS released_today
-    FROM activation_activity
-    WHERE user_id=? AND date(created_at, 'localtime')=date('now', 'localtime')
+    SELECT COUNT(*) AS completed_today
+    FROM tickets
+    WHERE completed_by=? AND completed_at IS NOT NULL
+      AND date(completed_at, 'localtime')=date('now', 'localtime')
   `).get(userId);
-  const working = db.prepare(`
-    SELECT COUNT(*) AS total FROM tickets
-    WHERE activation_owner_id=? AND status='active'
-  `).get(userId).total;
-  return { claimedToday: daily.claimed_today, working, releasedToday: daily.released_today };
+  return { completedToday: daily.completed_today };
 }
 
 // Личный профиль есть только у активации: логин не меняется, меняется лишь подпись
@@ -452,6 +485,24 @@ app.post('/activation/profile', requireRole('activation'), (req, res) => {
   // При открытых вкладках у коллег новое имя видно немедленно.
   sendActivationEvent('activation-owner-renamed', { ownerId: req.session.user.id, displayName: name });
   res.redirect('/activation/profile?saved=1');
+});
+
+// Архив завершённых талонов открыт всем отделам только на чтение.
+app.get('/processed', requireRole('helper', 'staff', 'admin', 'activation'), (req, res) => {
+  const tickets = db.prepare(processedSelect + ' ORDER BY t.completed_at DESC, t.id DESC').all();
+  res.render('processed', { tickets });
+});
+
+app.get('/processed/events', requireRole('helper', 'staff', 'admin', 'activation'), (req, res) => {
+  res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform',
+    'X-Accel-Buffering': 'no', Connection: 'keep-alive' });
+  res.flushHeaders();
+  res.write('retry: 3000\n\n');
+  processedClients.add(res);
+  const tickets = db.prepare(processedSelect + ' ORDER BY t.completed_at DESC, t.id DESC').all();
+  res.write(`data: ${JSON.stringify({ type: 'processed-snapshot', tickets })}\n\n`);
+  const keepAlive = setInterval(() => res.write(': keep-alive\n\n'), 25000);
+  req.on('close', () => { clearInterval(keepAlive); processedClients.delete(res); });
 });
 
 app.get('/activation', requireRole('activation', 'staff', 'admin'), (req, res) => {
@@ -500,7 +551,7 @@ app.post('/activation/:id/claim', requireRole('activation'), requireActivationCs
     const updated = db.prepare(`
       UPDATE tickets SET activation_owner_id=?, activation_claimed_at=CURRENT_TIMESTAMP,
                          updated_at=CURRENT_TIMESTAMP
-      WHERE id=? AND status='active' AND activation_owner_id IS NULL
+      WHERE id=? AND status='active' AND completed_at IS NULL AND activation_owner_id IS NULL
     `).run(req.session.user.id, ticketId);
     if (updated.changes) db.prepare(`
       INSERT INTO activation_activity (user_id, ticket_id, action) VALUES (?, ?, 'claim')
@@ -528,11 +579,11 @@ app.post('/activation/:id/release', requireRole('activation', 'admin'), requireA
     const updated = admin ? db.prepare(`
       UPDATE tickets SET activation_owner_id=NULL, activation_claimed_at=NULL,
                          updated_at=CURRENT_TIMESTAMP
-      WHERE id=? AND status='active' AND activation_owner_id IS NOT NULL
+      WHERE id=? AND status='active' AND completed_at IS NULL AND activation_owner_id IS NOT NULL
     `).run(ticketId) : db.prepare(`
       UPDATE tickets SET activation_owner_id=NULL, activation_claimed_at=NULL,
                          updated_at=CURRENT_TIMESTAMP
-      WHERE id=? AND status='active' AND activation_owner_id=?
+      WHERE id=? AND status='active' AND completed_at IS NULL AND activation_owner_id=?
     `).run(ticketId, req.session.user.id);
     // Учитываем лишь освобождения, сделанные самим владельцем, не администратором.
     if (!admin && updated.changes) db.prepare(`
@@ -546,6 +597,26 @@ app.post('/activation/:id/release', requireRole('activation', 'admin'), requireA
   const ticket = db.prepare('SELECT * FROM tickets WHERE id=?').get(ticketId);
   broadcast('activation-owner-updated', { ticket });
   res.json({ ok: true, ticket: activationTicket(ticket) });
+});
+
+// Только владелец может завершить взятый талон. Условный UPDATE защищает от двойного нажатия.
+app.post('/activation/:id/complete', requireRole('activation'), requireActivationCsrf, (req, res) => {
+  const ticketId = Number(req.params.id);
+  if (!Number.isSafeInteger(ticketId) || ticketId <= 0) {
+    return res.status(400).json({ ok: false, error: 'Некорректный талон' });
+  }
+  const result = db.prepare(`
+    UPDATE tickets
+    SET completed_at=CURRENT_TIMESTAMP, completed_by=?, updated_at=CURRENT_TIMESTAMP
+    WHERE id=? AND status='active' AND completed_at IS NULL AND activation_owner_id=?
+  `).run(req.session.user.id, ticketId, req.session.user.id);
+  if (!result.changes) {
+    return res.status(409).json({ ok: false,
+      error: 'Талон уже завершён, отозван или находится в работе другого специалиста' });
+  }
+  const ticket = db.prepare('SELECT * FROM tickets WHERE id=?').get(ticketId);
+  broadcast('ticket-completed', { ticket });
+  res.json({ ok: true, ticketId });
 });
 
 app.get('/create', requireRole('helper', 'admin'), (req, res) => {
@@ -601,6 +672,10 @@ app.post('/tickets/:id/services', requireRole('helper', 'admin'), (req, res) => 
     return res.status(404).json({ ok: false, error: 'Талон не найден' });
   }
 
+  if (ticket.status !== 'waiting' || ticket.completed_at) {
+    return res.status(409).json({ ok: false, error: 'Талон уже передан в активацию' });
+  }
+
   // Обычный хелпер меняет сервисы только у созданных им талонов.
   if (req.session.user.role === 'helper' && ticket.created_by !== req.session.user.id) {
     return res.status(403).json({ ok: false, error: 'Нет доступа к этому талону' });
@@ -609,7 +684,7 @@ app.post('/tickets/:id/services', requireRole('helper', 'admin'), (req, res) => 
   db.prepare(`
     UPDATE tickets
     SET ${column} = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
+    WHERE id = ? AND status='waiting' AND completed_at IS NULL
   `).run(value ? 1 : 0, ticketId);
 
   const updatedTicket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
@@ -637,14 +712,14 @@ app.post('/tickets/:id/ready', requireRole('helper', 'admin'), (req, res) => {
   }
 
   // После перевода в актив итоговый статус контролирует штатный сотрудник.
-  if (ticket.status === 'active') {
+  if (ticket.status !== 'waiting' || ticket.completed_at) {
     return res.status(409).json({ ok: false, error: 'Талон уже переведен на актив' });
   }
 
   db.prepare(`
     UPDATE tickets
     SET helper_ready = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
+    WHERE id = ? AND status='waiting' AND completed_at IS NULL
   `).run(ready ? 1 : 0, ticketId);
 
   const updatedTicket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
@@ -655,7 +730,7 @@ app.post('/tickets/:id/ready', requireRole('helper', 'admin'), (req, res) => {
 
 app.get('/tickets', requireRole('helper', 'staff', 'admin'), (req, res) => {
   const search = (req.query.search || '').trim();
-  const where = [];
+  const where = ["t.status='waiting' AND t.completed_at IS NULL"];
   const params = [];
 
   if (search) {
@@ -698,17 +773,17 @@ app.post('/tickets/:id/reason', requireRole('staff', 'admin'), (req, res) => {
     return res.status(400).json({ ok: false, error: 'Выбери причину из списка' });
   }
 
-  // Уже активный талон нельзя оставить без причины; исправить на другую можно.
-  const currentTicket = db.prepare('SELECT status FROM tickets WHERE id = ?').get(ticketId);
+  // После передачи в активацию штатник уже не редактирует талон из общего списка.
+  const currentTicket = db.prepare('SELECT status, completed_at FROM tickets WHERE id = ?').get(ticketId);
   if (!currentTicket) {
     return res.status(404).json({ ok: false, error: 'Талон не найден' });
   }
-  if (currentTicket.status === 'active' && !value) {
-    return res.status(409).json({ ok: false, error: 'У талона на активе причина обращения обязательна' });
+  if (currentTicket.status !== 'waiting' || currentTicket.completed_at) {
+    return res.status(409).json({ ok: false, error: 'Талон уже передан в активацию' });
   }
 
   const result = db.prepare(`
-    UPDATE tickets SET reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    UPDATE tickets SET reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status='waiting' AND completed_at IS NULL
   `).run(value || null, ticketId);
 
   if (!result.changes) {
@@ -730,10 +805,8 @@ app.post('/tickets/:id/number', requireRole('staff', 'admin'), (req, res) => {
   const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
   if (!ticket) return res.status(404).send('Талон не найден');
 
+  if (ticket.status !== 'waiting' || ticket.completed_at) return redirectWithError(res, 'Талон уже передан в активацию');
   let queueNumber = null;
-  if (rawNumber === '' && ticket.status === 'active') {
-    return redirectWithError(res, 'У талона в активе должен быть номер. Сначала верни его из статуса «Переведен на актив».');
-  }
 
   if (rawNumber !== '') {
     queueNumber = Number(rawNumber);
@@ -751,7 +824,7 @@ app.post('/tickets/:id/number', requireRole('staff', 'admin'), (req, res) => {
   db.prepare(`
     UPDATE tickets
     SET queue_number = ?, assigned_by = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
+    WHERE id = ? AND status='waiting' AND completed_at IS NULL
   `).run(queueNumber, req.session.user.id, ticketId);
 
   const updatedTicket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
@@ -781,6 +854,12 @@ app.post('/tickets/:id/status', requireRole('staff', 'admin'), (req, res) => {
     return redirectWithError(res, 'Сначала выбери причину обращения из списка');
   }
 
+  if (action === 'active' && ticket.status !== 'waiting') {
+    return redirectWithError(res, 'Талон уже передан в активацию');
+  }
+  if (action === 'restore' && (ticket.status !== 'active' || ticket.activation_owner_id || ticket.completed_at)) {
+    return redirectWithError(res, 'Талон уже в работе или завершён — вернуть его нельзя');
+  }
   const nextStatus = action === 'active' ? 'active' : 'waiting';
 
   db.prepare(`
@@ -789,7 +868,7 @@ app.post('/tickets/:id/status', requireRole('staff', 'admin'), (req, res) => {
         activation_owner_id = CASE WHEN ? = 'waiting' THEN NULL ELSE activation_owner_id END,
         activation_claimed_at = CASE WHEN ? = 'waiting' THEN NULL ELSE activation_claimed_at END,
         updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
+    WHERE id = ? AND completed_at IS NULL
   `).run(nextStatus, req.session.user.id, nextStatus, nextStatus, ticketId);
 
   const updatedTicket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
@@ -805,11 +884,13 @@ app.post('/tickets/:id/delete', requireRole('helper', 'staff', 'admin'), (req, r
   const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId);
   if (!ticket) return res.status(404).send('Талон не найден');
 
+  if (ticket.status !== 'waiting' || ticket.completed_at) return redirectWithError(res, 'Талон уже передан в активацию');
+
   if (req.session.user.role === 'helper' && ticket.created_by !== req.session.user.id) {
     return res.status(403).send('Нет доступа к этому талону');
   }
 
-  db.prepare('DELETE FROM tickets WHERE id = ?').run(ticketId);
+  db.prepare("DELETE FROM tickets WHERE id = ? AND status='waiting' AND completed_at IS NULL").run(ticketId);
   broadcast('ticket-deleted', { ticketId });
 
   res.redirect('/tickets?success=' + encodeURIComponent('Талон удалён'));

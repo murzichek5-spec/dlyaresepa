@@ -349,6 +349,12 @@ document.querySelectorAll('[data-delete-form]').forEach((form) => {
 });
 
 const events = new EventSource('/events');
+let firstConnection = true;
+events.onopen = () => {
+  // Если SSE прервался, синхронизируем текущий список с базой при восстановлении связи.
+  if (firstConnection) firstConnection = false;
+  else window.location.reload();
+};
 
 events.onmessage = (event) => {
   let data;

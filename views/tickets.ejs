@@ -20,6 +20,7 @@
             <a class="nav-link" href="/create">Создать талон</a>
           <% } %>
           <a class="nav-link active" href="/tickets">Талоны</a>
+          <a class="nav-link" href="/processed">Обработанные талоны</a>
           <% if (user.role === 'staff' || user.role === 'admin') { %>
             <a class="nav-link" href="/activation">Активация</a>
           <% } %>

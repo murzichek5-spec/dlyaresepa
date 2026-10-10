@@ -56,7 +56,11 @@
       button.type = 'button';
       button.dataset.activationAction = '';
       button.hidden = true;
-      actionCell.append(button);
+      const completeButton = makeElement('button', 'activation-action complete', 'Завершить');
+      completeButton.type = 'button';
+      completeButton.dataset.activationComplete = '';
+      completeButton.hidden = true;
+      actionCell.append(button, completeButton);
       row.append(actionCell);
     }
     return row;
@@ -98,6 +102,8 @@
     owner.classList.toggle('free', !ownerId);
     const button = row.querySelector('[data-activation-action]');
     if (!button) return;
+    const completeButton = row.querySelector('[data-activation-complete]');
+    if (completeButton) completeButton.hidden = !(role === 'activation' && ownerId === currentUserId);
     if (ownerId === 0 && role === 'activation') {
       button.hidden = false;
       button.textContent = 'Взять в работу';
@@ -105,7 +111,7 @@
       button.classList.remove('secondary');
     } else if (ownerId && (ownerId === currentUserId || role === 'admin')) {
       button.hidden = false;
-      button.textContent = 'Завершить';
+      button.textContent = 'Освободить';
       button.dataset.action = 'release';
       button.classList.add('secondary');
     } else {
@@ -139,12 +145,13 @@
   }
 
   tbody.addEventListener('click', async (event) => {
-    const button = event.target.closest('[data-activation-action]');
+    const button = event.target.closest('[data-activation-action], [data-activation-complete]');
     if (!button || button.disabled || button.hidden) return;
     const row = button.closest('[data-activation-id]');
-    const action = button.dataset.action;
-    if (!row || !['claim', 'release'].includes(action)) return;
-    button.disabled = true;
+    const action = button.hasAttribute('data-activation-complete') ? 'complete' : button.dataset.action;
+    if (!row || !['claim', 'release', 'complete'].includes(action)) return;
+    if (action === 'complete' && !confirm('Завершить активацию кандидата? Талон перейдёт в «Обработанные талоны».')) return;
+    row.querySelectorAll('button').forEach(b => b.disabled = true);
     notice.hidden = true;
     try {
       const response = await fetch(`/activation/${row.dataset.activationId}/${action}`, {
@@ -154,11 +161,17 @@
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || 'Не удалось сохранить изменение');
-      updateRow(result.ticket);
+      if (action === 'complete') {
+        row.remove();
+        refresh();
+        showNotice('Талон завершён и перемещён в «Обработанные талоны»', false);
+      } else {
+        updateRow(result.ticket);
+      }
     } catch (error) {
       showNotice(error.message, true);
     } finally {
-      button.disabled = false;
+      row.querySelectorAll('button').forEach(b => b.disabled = false);
     }
   });
 

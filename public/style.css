@@ -832,7 +832,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .profile-stats-section .section-heading-row { margin-bottom: 14px; }
 .profile-stats-section h2 { margin-bottom: 6px; }
 .profile-stats-section p { margin: 0; color: var(--muted); font-size: 13px; }
-.profile-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.profile-stats { display: grid; grid-template-columns: minmax(0, 360px); gap: 12px; }
 .stat-card { display: flex; flex-direction: column; gap: 12px; padding: 22px; }
 .stat-label { font-size: 13px; font-weight: 700; color: #5c5c55; }
 .stat-value { font-size: 40px; font-weight: 800; line-height: 1; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
@@ -844,3 +844,11 @@ tbody tr:last-child td { border-bottom: 0; }
   .stat-value { font-size: 34px; }
   .profile-save { width: 100%; }
 }
+
+/* v19: оформление архива и кнопки завершения в существующем стиле */
+.activation-actions { white-space: nowrap; }
+.activation-action.complete { background: #e5f5e6; color: #246638; border-color: #baddbd; margin-left: 5px; }
+.activation-action.complete:hover:not(:disabled) { background: #d6efda; }
+.processed-table { min-width: 1020px; }
+.processed-date { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.processed-table tr[hidden] { display:none; }

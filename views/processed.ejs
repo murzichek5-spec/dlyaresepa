@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QMIK | Обработанные талоны</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="background app-background">
+    <header class="topbar-shell">
+      <div class="topbar">
+        <a class="brand" href="/">
+          <span class="brand-logo">ദ്ദി（• ˕ •マ.ᐟ</span>
+          <span class="brand-name">QMIK 2.0</span>
+        </a>
+        <nav class="nav-links">
+          <% if (user.role === 'helper' || user.role === 'admin') { %><a class="nav-link" href="/create">Создать талон</a><% } %>
+          <% if (user.role !== 'activation') { %><a class="nav-link" href="/tickets">Талоны</a><% } %>
+          <% if (user.role === 'activation' || user.role === 'staff' || user.role === 'admin') { %><a class="nav-link" href="/activation">Активация</a><% } %>
+          <a class="nav-link active" href="/processed" aria-current="page">Обработанные талоны</a>
+          <% if (user.role === 'activation') { %><a class="nav-link" href="/activation/profile">Мой профиль</a><% } %>
+          <form method="post" action="/logout"><button class="nav-link logout-button" type="submit">Выйти</button></form>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page" id="processed-page">
+      <section class="page-heading">
+        <div><h1>Обработанные талоны</h1><p>Кандидаты, по которым отдел активации завершил работу</p></div>
+        <div class="heading-actions">
+          <span class="activation-count" aria-live="polite">Обработано: <strong id="processed-count"><%= tickets.length %></strong></span>
+          <div class="user-chip"><span class="status-dot"></span><%= user.display_name || user.username %></div>
+        </div>
+      </section>
+      <section class="content-card activation-search-card">
+        <div class="filter-field search-field">
+          <label for="processed-search">Поиск по обработанным талонам</label>
+          <input id="processed-search" type="search" placeholder="ФИО, телефон или № талона" autocomplete="off">
+        </div>
+      </section>
+      <section class="content-card table-card">
+        <div class="table-scroll">
+          <table class="tickets-table activation-table processed-table">
+            <thead><tr>
+              <th>№ талона</th><th>Клиент</th>
+              <th class="center-cell">TG</th><th class="center-cell">МН</th><th class="center-cell">ЯП</th>
+              <th>Причина обращения</th><th>Статус</th><th>Специалист</th><th>Завершён</th>
+            </tr></thead>
+            <tbody id="processed-ticket-rows">
+              <% tickets.forEach(ticket => { %>
+                <tr data-processed-id="<%= ticket.id %>">
+                  <td class="ticket-number" data-processed-number><%= ticket.queue_number || '—' %></td>
+                  <td class="client-cell"><div class="client-name" data-processed-name><%= ticket.full_name %></div><div class="client-phone" data-processed-phone><%= ticket.phone %></div></td>
+                  <% [['telegram','has_telegram'],['my_tax','has_my_tax'],['yandex_pro','has_yandex_pro']].forEach(([field,col]) => { %>
+                    <td class="center-cell"><span class="feature-mark <%= ticket[col] ? 'yes' : 'no' %>" data-processed-service="<%= field %>"><%= ticket[col] ? '✓' : '—' %></span></td>
+                  <% }) %>
+                  <td class="reason-cell"><span class="reason-readonly" data-processed-reason><%= ticket.reason || '—' %></span></td>
+                  <td><span class="badge ready-badge"><span class="badge-dot"></span><span>Обработан</span></span></td>
+                  <td data-processed-owner><%= ticket.completed_by_name || '—' %></td>
+                  <td class="processed-date" data-processed-date><%= ticket.completed_local || '—' %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+          <div class="activation-empty" id="processed-empty" <%= tickets.length ? 'hidden' : '' %>>Пока нет обработанных талонов</div>
+          <div class="activation-empty" id="processed-search-empty" hidden>Ничего не найдено</div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/processed-live.js"></script>
+</body>
+</html>

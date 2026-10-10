@@ -16,6 +16,7 @@
         </a>
         <nav class="nav-links">
           <a class="nav-link" href="/activation">Активация</a>
+          <a class="nav-link" href="/processed">Обработанные талоны</a>
           <a class="nav-link active" href="/activation/profile" aria-current="page">Мой профиль</a>
           <form method="post" action="/logout"><button class="nav-link logout-button" type="submit">Выйти</button></form>
         </nav>
@@ -54,22 +55,12 @@
       </section>
 
       <section class="profile-stats-section">
-        <div class="section-heading-row"><div><h2>Статистика за сегодня</h2><p>С начала дня по времени сервера. Обновляется при открытии страницы.</p></div></div>
+        <div class="section-heading-row"><div><h2>Статистика за сегодня</h2><p>Талоны, активацию которых ты завершил сегодня.</p></div></div>
         <div class="profile-stats">
           <article class="content-card stat-card">
-            <span class="stat-label">Взято кандидатов</span>
-            <strong class="stat-value"><%= stats.claimedToday %></strong>
-            <span class="stat-note">Уникальных талонов за день</span>
-          </article>
-          <article class="content-card stat-card">
-            <span class="stat-label">Сейчас в работе</span>
-            <strong class="stat-value"><%= stats.working %></strong>
-            <span class="stat-note">Закреплены за тобой</span>
-          </article>
-          <article class="content-card stat-card">
-            <span class="stat-label">Освобождено</span>
-            <strong class="stat-value"><%= stats.releasedToday %></strong>
-            <span class="stat-note">Твоих нажатий «Освободить»</span>
+            <span class="stat-label">Сделано талонов</span>
+            <strong class="stat-value"><%= stats.completedToday %></strong>
+            <span class="stat-note">Учитываются только завершённые тобой талоны за сегодня.</span>
           </article>
         </div>
       </section>

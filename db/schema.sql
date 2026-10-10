@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   assigned_by INTEGER,
   activation_owner_id INTEGER REFERENCES users(id),
   activation_claimed_at DATETIME,
+  completed_at DATETIME,
+  completed_by INTEGER REFERENCES users(id),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(created_by) REFERENCES users(id),
