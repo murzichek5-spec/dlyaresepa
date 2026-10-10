@@ -17,7 +17,7 @@
         <nav class="nav-links">
           <% if (user.role === 'helper' || user.role === 'admin') { %><a class="nav-link" href="/create">Создать талон</a><% } %>
           <% if (user.role !== 'activation') { %><a class="nav-link" href="/tickets">Талоны</a><% } %>
-          <% if (user.role === 'activation' || user.role === 'staff' || user.role === 'admin') { %><a class="nav-link" href="/activation">Активация</a><% } %>
+          <% if (user.role === 'activation' || user.role === 'staff' || user.role === 'admin') { %><a class="nav-link" href="/activation">Очередь</a><% } %>
           <a class="nav-link active" href="/processed" aria-current="page">Обработанные талоны</a>
           <% if (user.role === 'activation') { %><a class="nav-link" href="/activation/profile">Мой профиль</a><% } %>
           <form method="post" action="/logout"><button class="nav-link logout-button" type="submit">Выйти</button></form>
@@ -27,7 +27,7 @@
 
     <main class="page" id="processed-page">
       <section class="page-heading">
-        <div><h1>Обработанные талоны</h1><p>Кандидаты, по которым отдел активации завершил работу</p></div>
+        <div><h1>Обработанные талоны</h1></div>
         <div class="heading-actions">
           <span class="activation-count" aria-live="polite">Обработано: <strong id="processed-count"><%= tickets.length %></strong></span>
           <div class="user-chip"><span class="status-dot"></span><%= user.display_name || user.username %></div>

@@ -111,7 +111,7 @@
       button.classList.remove('secondary');
     } else if (ownerId && (ownerId === currentUserId || role === 'admin')) {
       button.hidden = false;
-      button.textContent = 'Освободить';
+      button.textContent = 'Вернуть';
       button.dataset.action = 'release';
       button.classList.add('secondary');
     } else {

@@ -15,7 +15,7 @@
           <span class="brand-name">QMIK 2.0</span>
         </a>
         <nav class="nav-links">
-          <a class="nav-link" href="/activation">Активация</a>
+          <a class="nav-link" href="/activation">Очередь</a>
           <a class="nav-link" href="/processed">Обработанные талоны</a>
           <a class="nav-link active" href="/activation/profile" aria-current="page">Мой профиль</a>
           <form method="post" action="/logout"><button class="nav-link logout-button" type="submit">Выйти</button></form>
@@ -26,18 +26,16 @@
     <main class="page profile-page">
       <section class="page-heading">
         <div>
-          <span class="eyebrow">Личный кабинет</span>
           <h1>Мой профиль</h1>
-          <p>Имя, которое видят коллеги при закреплении кандидата</p>
         </div>
         <div class="user-chip"><span class="status-dot"></span><%= user.display_name || user.username %></div>
       </section>
 
-      <% if (saved) { %><div class="alert success" role="status">Имя сохранено. Коллеги уже видят его в очереди.</div><% } %>
+      <% if (saved) { %><div class="alert success" role="status">Имя сохранено. Посмотреть можно в очереди.</div><% } %>
       <% if (error) { %><div class="alert error" role="alert"><%= error %></div><% } %>
 
       <section class="content-card profile-card">
-        <h2>Данные сотрудника</h2>
+        <h2>Твои данные:</h2>
         <form method="post" action="/activation/profile" class="profile-form">
           <input type="hidden" name="_csrf" value="<%= csrf %>">
           <div class="input-group">
@@ -48,19 +46,18 @@
           <div class="input-group">
             <label for="display-name">Отображаемое имя</label>
             <input id="display-name" type="text" name="display_name" value="<%= user.display_name || user.username %>" required minlength="2" maxlength="40" autocomplete="nickname" placeholder="Например, Александр">
-            <span class="field-help">От 2 до 40 символов. Это имя будет показано в строке «В работе у…».</span>
+            <span class="field-help">От 2 до 40 символов.</span>
           </div>
           <button class="primary-button profile-save" type="submit">Сохранить имя</button>
         </form>
       </section>
 
       <section class="profile-stats-section">
-        <div class="section-heading-row"><div><h2>Статистика за сегодня</h2><p>Талоны, активацию которых ты завершил сегодня.</p></div></div>
+        <div class="section-heading-row"><div><h2>Статистика за сегодня</h2></div></div>
         <div class="profile-stats">
           <article class="content-card stat-card">
-            <span class="stat-label">Сделано талонов</span>
+            <span class="stat-label">Завершено талонов</span>
             <strong class="stat-value"><%= stats.completedToday %></strong>
-            <span class="stat-note">Учитываются только завершённые тобой талоны за сегодня.</span>
           </article>
         </div>
       </section>

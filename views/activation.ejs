@@ -19,7 +19,7 @@
             <% if (user.role === 'admin') { %><a class="nav-link" href="/create">Создать талон</a><% } %>
             <a class="nav-link" href="/tickets">Талоны</a>
           <% } %>
-          <a class="nav-link active" href="/activation">Активация</a>
+          <a class="nav-link active" href="/activation">Очередь</a>
           <a class="nav-link" href="/processed">Обработанные талоны</a>
           <% if (user.role === 'activation') { %><a class="nav-link" href="/activation/profile">Мой профиль</a><% } %>
           <form method="post" action="/logout">
@@ -34,7 +34,7 @@
           data-csrf="<%= activationCsrf %>">
       <section class="page-heading">
         <div>
-          <h1>Активация</h1>
+          <h1>Очередь</h1>
           <p>Кандидаты, переданные штатным сотрудником на актив</p>
         </div>
         <div class="heading-actions">
@@ -45,7 +45,7 @@
 
       <section class="content-card activation-search-card">
         <div class="filter-field search-field">
-          <label for="activation-search">Поиск по активным талонам</label>
+          <label for="activation-search">Поиск по очереди</label>
           <input id="activation-search" type="search" placeholder="ФИО, телефон или № талона" autocomplete="off">
         </div>
       </section>
@@ -89,7 +89,7 @@
               <% }) %>
             </tbody>
           </table>
-          <div class="activation-empty" id="activation-empty" <%= tickets.length ? 'hidden' : '' %>>Пока нет талонов на активации</div>
+          <div class="activation-empty" id="activation-empty" <%= tickets.length ? 'hidden' : '' %>>В очереди пока нет талонов</div>
           <div class="activation-empty" id="activation-search-empty" hidden>Ничего не найдено</div>
         </div>
       </section>
