@@ -11,6 +11,11 @@ const reasonGroups = require('./data/reasons.json');
 const activationAccounts = require('./config/activation-accounts');
 const allowedReasons = new Set(reasonGroups.flatMap((group) => group.values));
 
+const DEFAULT_OWNER_BG = '#f4f4f0';
+const DEFAULT_OWNER_TEXT = '#595952';
+const isValidHexColor = (value) => typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value);
+const safeColor = (value, fallback) => isValidHexColor(value) ? value.toLowerCase() : fallback;
+
 const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
@@ -90,6 +95,9 @@ if (!usersDDL.includes("'activation'")) {
 const userColumns = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
 if (!userColumns.includes('display_name')) db.exec('ALTER TABLE users ADD COLUMN display_name TEXT');
 if (!userColumns.includes('is_active')) db.exec('ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');
+// Цвета плашки занятого талона настраивает сам специалист активации.
+if (!userColumns.includes('owner_bg_color')) db.exec("ALTER TABLE users ADD COLUMN owner_bg_color TEXT NOT NULL DEFAULT '#f4f4f0'");
+if (!userColumns.includes('owner_text_color')) db.exec("ALTER TABLE users ADD COLUMN owner_text_color TEXT NOT NULL DEFAULT '#595952'");
 
 // Дневной журнал активации: история взятий/освобождений не зависит от того,
 // удалили ли уже сам талон. Очищается в полночь вместе с талонами.
@@ -130,6 +138,24 @@ function sendProcessedEvent(type, payload = {}) {
   }
 }
 
+function getActivationOwnerStyle(ownerId) {
+  if (!ownerId) return {
+    activation_owner_name: null,
+    activation_owner_bg_color: DEFAULT_OWNER_BG,
+    activation_owner_text_color: DEFAULT_OWNER_TEXT
+  };
+  const owner = db.prepare(`
+    SELECT COALESCE(NULLIF(display_name, ''), username) AS name,
+           owner_bg_color AS bg_color, owner_text_color AS text_color
+    FROM users WHERE id=?
+  `).get(ownerId);
+  return {
+    activation_owner_name: owner?.name || 'Сотрудник',
+    activation_owner_bg_color: safeColor(owner?.bg_color, DEFAULT_OWNER_BG),
+    activation_owner_text_color: safeColor(owner?.text_color, DEFAULT_OWNER_TEXT)
+  };
+}
+
 function activationTicket(ticket) {
   return {
     id: ticket.id,
@@ -143,10 +169,7 @@ function activationTicket(ticket) {
     has_my_tax: ticket.has_my_tax,
     has_yandex_pro: ticket.has_yandex_pro,
     activation_owner_id: ticket.activation_owner_id,
-    activation_owner_name: ticket.activation_owner_id
-      ? (db.prepare("SELECT COALESCE(NULLIF(display_name, ''), username) AS name FROM users WHERE id = ?")
-          .get(ticket.activation_owner_id)?.name || 'Сотрудник')
-      : null
+    ...getActivationOwnerStyle(ticket.activation_owner_id)
   };
 }
 
@@ -449,7 +472,9 @@ const activationSelect = `
   SELECT t.id, t.full_name, t.phone, t.queue_number, t.reason, t.comment, t.comment_version,
          t.has_telegram, t.has_my_tax, t.has_yandex_pro,
          t.activation_owner_id, t.activation_claimed_at,
-         COALESCE(NULLIF(u.display_name, ''), u.username) AS activation_owner_name
+         COALESCE(NULLIF(u.display_name, ''), u.username) AS activation_owner_name,
+         u.owner_bg_color AS activation_owner_bg_color,
+         u.owner_text_color AS activation_owner_text_color
   FROM tickets t
   LEFT JOIN users u ON u.id=t.activation_owner_id
   WHERE t.status='active' AND t.completed_at IS NULL
@@ -480,8 +505,11 @@ function getActivationStats(userId) {
 // в общей очереди. Статистика — за текущий день по времени сервера.
 app.get('/activation/profile', requireRole('activation'), (req, res) => {
   if (!req.session.activation_csrf) req.session.activation_csrf = crypto.randomBytes(32).toString('hex');
+  const colors = db.prepare('SELECT owner_bg_color, owner_text_color FROM users WHERE id=?')
+    .get(req.session.user.id);
   res.render('profile', {
     csrf: req.session.activation_csrf,
+    colors,
     stats: getActivationStats(req.session.user.id),
     saved: req.query.saved === '1',
     error: null
@@ -497,19 +525,35 @@ app.post('/activation/profile', requireRole('activation'), (req, res) => {
 
   const rawName = req.body.display_name;
   const name = typeof rawName === 'string' ? rawName.trim().replace(/\s+/g, ' ') : '';
-  if ([...name].length < 2 || [...name].length > 40 || /[<>\x00-\x1f\x7f]/.test(name)) {
+  const bgColor = req.body.owner_bg_color;
+  const textColor = req.body.owner_text_color;
+  const invalidName = [...name].length < 2 || [...name].length > 40 || /[<>\x00-\x1f\x7f]/.test(name);
+  if (invalidName || !isValidHexColor(bgColor) || !isValidHexColor(textColor)) {
     return res.status(400).render('profile', {
       csrf: expected,
+      colors: {
+        owner_bg_color: safeColor(bgColor, DEFAULT_OWNER_BG),
+        owner_text_color: safeColor(textColor, DEFAULT_OWNER_TEXT)
+      },
       stats: getActivationStats(req.session.user.id),
       saved: false,
-      error: 'Имя должно содержать от 2 до 40 символов без спецсимволов < и >.'
+      error: invalidName
+        ? 'Имя должно содержать от 2 до 40 символов без спецсимволов < и >.'
+        : 'Выбери корректные цвета для текста и плашки.'
     });
   }
 
-  db.prepare("UPDATE users SET display_name=? WHERE id=? AND role='activation' AND is_active=1")
-    .run(name, req.session.user.id);
-  // При открытых вкладках у коллег новое имя видно немедленно.
-  sendActivationEvent('activation-owner-renamed', { ownerId: req.session.user.id, displayName: name });
+  const savedBg = bgColor.toLowerCase();
+  const savedText = textColor.toLowerCase();
+  db.prepare(`
+    UPDATE users SET display_name=?, owner_bg_color=?, owner_text_color=?
+    WHERE id=? AND role='activation' AND is_active=1
+  `).run(name, savedBg, savedText, req.session.user.id);
+  // Уже открытая очередь обновляется без перезагрузки у всех участников.
+  sendActivationEvent('activation-owner-profile-updated', {
+    ownerId: req.session.user.id, displayName: name,
+    bgColor: savedBg, textColor: savedText
+  });
   res.redirect('/activation/profile?saved=1');
 });
 

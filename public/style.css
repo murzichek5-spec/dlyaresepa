@@ -784,7 +784,7 @@ tbody tr:last-child td { border-bottom: 0; }
   font-weight: 700;
 }
 .activation-owner-chip.free { background: #edf7ed; color: #347347; }
-.activation-owner-chip.busy { background: #f4f4f0; color: #595952; }
+.activation-owner-chip.busy { background: var(--owner-bg, #f4f4f0); color: var(--owner-text, #595952); }
 .activation-actions { min-width: 130px; }
 .activation-action {
   border: 1px solid #e8cd61;
@@ -907,3 +907,19 @@ tbody tr:last-child td { border-bottom: 0; }
 .comment-cancel { background: #fff; color: #63635c; }
 .comment-save:disabled, .comment-cancel:disabled { opacity: .5; cursor: wait; }
 .comment-feedback { display: block; font-size: 11px; line-height: 1.35; color: #a03939; margin-top: 7px; }
+
+
+/* v22: личное оформление плашки занятого талона */
+.profile-color-section { border-top: 1px solid #efefe9; padding-top: 20px; display: grid; gap: 15px; }
+.profile-color-section h3 { font-size: 15px; margin: 0 0 4px; }
+.profile-color-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+.profile-color-field { min-width: 0; }
+.profile-color-control { display: flex; align-items: center; gap: 11px; padding: 7px 11px; border: 1px solid #e5e5dc; border-radius: 10px; background: #fafaf8; }
+.profile-color-control input[type=color] { width: 43px; height: 36px; border: none; padding: 0; border-radius: 8px; cursor: pointer; background: transparent; flex-shrink: 0; }
+.profile-color-control input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; }
+.profile-color-control input[type=color]::-webkit-color-swatch { border-radius: 6px; border: 1px solid #dbdbd5; }
+.profile-color-control output { color: #595950; font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.profile-preview-wrap { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; min-height: 46px; }
+.profile-preview-wrap .activation-owner-chip { font-size: 13px; padding: 9px 13px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.profile-contrast-advice { color: #9b6014; }
+@media (max-width: 620px) { .profile-color-fields { grid-template-columns: 1fr; } }

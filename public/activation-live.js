@@ -92,16 +92,24 @@
       setMark(row, name, ticket[field]);
     }
     row.dataset.activationOwner = ticket.activation_owner_id ? String(ticket.activation_owner_id) : '';
-    setOwnerState(row, ticket.activation_owner_name);
+    setOwnerState(row, ticket.activation_owner_name,
+      ticket.activation_owner_bg_color, ticket.activation_owner_text_color);
     refresh();
   }
 
-  function setOwnerState(row, ownerName) {
+  const isHexColor = value => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
+  function setOwnerState(row, ownerName, bgColor, textColor) {
     const ownerId = Number(row.dataset.activationOwner) || 0;
     const owner = row.querySelector('[data-activation-owner-name]');
     owner.textContent = ownerId ? `У ${ownerName || 'сотрудника'}` : 'Свободен';
     owner.classList.toggle('busy', Boolean(ownerId));
     owner.classList.toggle('free', !ownerId);
+    const safeBg = ownerId && isHexColor(bgColor) ? bgColor : '#f4f4f0';
+    const safeText = ownerId && isHexColor(textColor) ? textColor : '#595952';
+    owner.dataset.ownerBg = safeBg;
+    owner.dataset.ownerText = safeText;
+    owner.style.setProperty('--owner-bg', safeBg);
+    owner.style.setProperty('--owner-text', safeText);
     const button = row.querySelector('[data-activation-action]');
     if (!button) return;
     const completeButton = row.querySelector('[data-activation-complete]');
@@ -181,7 +189,9 @@
   // При загрузке страницы уже отрисованные строки получают доступные действия.
   [...tbody.querySelectorAll('[data-activation-id]')].forEach(row => {
     const text = row.querySelector('[data-activation-owner-name]').textContent;
-    setOwnerState(row, text.startsWith('У ') ? text.slice(2) : null);
+    const owner = row.querySelector('[data-activation-owner-name]');
+    setOwnerState(row, text.startsWith('У ') ? text.slice(2) : null,
+      owner.dataset.ownerBg, owner.dataset.ownerText);
   });
   refresh();
 
@@ -200,10 +210,10 @@
       const row = [...tbody.children].find(item => item.dataset.activationId === String(data.ticketId));
       row?.remove();
       refresh();
-    } else if (data.type === 'activation-owner-renamed') {
+    } else if (data.type === 'activation-owner-profile-updated' || data.type === 'activation-owner-renamed') {
       for (const row of tbody.querySelectorAll('[data-activation-id]')) {
         if (Number(row.dataset.activationOwner) === Number(data.ownerId)) {
-          setOwnerState(row, data.displayName);
+          setOwnerState(row, data.displayName, data.bgColor, data.textColor);
         }
       }
       if (Number(data.ownerId) === currentUserId) {

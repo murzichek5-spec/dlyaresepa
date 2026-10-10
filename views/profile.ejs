@@ -31,7 +31,7 @@
         <div class="user-chip"><span class="status-dot"></span><%= user.display_name || user.username %></div>
       </section>
 
-      <% if (saved) { %><div class="alert success" role="status">Имя сохранено. Посмотреть можно в очереди.</div><% } %>
+      <% if (saved) { %><div class="alert success" role="status">Профиль сохранён. Имя и цвета плашки обновились в очереди.</div><% } %>
       <% if (error) { %><div class="alert error" role="alert"><%= error %></div><% } %>
 
       <section class="content-card profile-card">
@@ -48,7 +48,34 @@
             <input id="display-name" type="text" name="display_name" value="<%= user.display_name || user.username %>" required minlength="2" maxlength="40" autocomplete="nickname" placeholder="Например, Александр">
             <span class="field-help">От 2 до 40 символов.</span>
           </div>
-          <button class="primary-button profile-save" type="submit">Сохранить имя</button>
+          <div class="profile-color-section">
+            <div>
+              <h3>Оформление плашки</h3>
+              <p class="field-help">Так тебя будут видеть коллеги, когда ты возьмёшь талон в работу.</p>
+            </div>
+            <div class="profile-color-fields">
+              <div class="input-group profile-color-field">
+                <label for="owner-bg-color">Цвет плашки</label>
+                <div class="profile-color-control">
+                  <input type="color" id="owner-bg-color" name="owner_bg_color" value="<%= colors.owner_bg_color %>" aria-label="Выбрать цвет плашки">
+                  <output for="owner-bg-color" id="owner-bg-hex"><%= colors.owner_bg_color %></output>
+                </div>
+              </div>
+              <div class="input-group profile-color-field">
+                <label for="owner-text-color">Цвет текста</label>
+                <div class="profile-color-control">
+                  <input type="color" id="owner-text-color" name="owner_text_color" value="<%= colors.owner_text_color %>" aria-label="Выбрать цвет текста">
+                  <output for="owner-text-color" id="owner-text-hex"><%= colors.owner_text_color %></output>
+                </div>
+              </div>
+            </div>
+            <div class="profile-preview-wrap">
+              <span class="field-help">Предпросмотр:</span>
+              <span id="owner-preview" class="activation-owner-chip busy" style="--owner-bg: <%= colors.owner_bg_color %>; --owner-text: <%= colors.owner_text_color %>;">У <%= user.display_name || user.username %></span>
+            </div>
+            <p id="contrast-advice" class="field-help profile-contrast-advice" aria-live="polite" hidden>Текст и фон очень похожи — коллегам может быть сложно прочитать имя.</p>
+          </div>
+          <button class="primary-button profile-save" type="submit">Сохранить профиль</button>
         </form>
       </section>
 
@@ -63,5 +90,6 @@
       </section>
     </main>
   </div>
+  <script src="/profile-colors.js"></script>
 </body>
 </html>

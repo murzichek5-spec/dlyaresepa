@@ -3,6 +3,8 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   display_name TEXT,
+  owner_bg_color TEXT NOT NULL DEFAULT '#f4f4f0',
+  owner_text_color TEXT NOT NULL DEFAULT '#595952',
   is_active INTEGER NOT NULL DEFAULT 1,
   role TEXT NOT NULL CHECK(role IN ('helper', 'staff', 'admin', 'activation')),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
